@@ -5,9 +5,9 @@ Modern Python and PyQt6 continuation of **Dungeons & Dragons Game Manager
 (likely 4.03). Original source header credits Copyright 2001–2025
 **Kaosium Interactive**.
 
-## Status: early development, v0.1.0
+## Status: early development, v0.2.0
 
-First working feature: **Character & Monster Library**, backed by SQLite.
+Current milestone: **The Compendium**, a themed Character & Monster Library, backed by SQLite.
 Create, search, edit, duplicate, archive and restore player characters,
 NPCs and monster templates. Records persist between application launches.
 
