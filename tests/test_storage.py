@@ -1,5 +1,6 @@
 """Database tests run without requiring a Qt display or PyQt installation."""
 from dataclasses import replace
+from contextlib import closing
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import sqlite3
@@ -64,8 +65,9 @@ class CreatureRepositoryTests(unittest.TestCase):
         self.assertEqual(self.repo.list(), [])
 
     def test_refuse_newer_schema(self):
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db:
             db.execute("PRAGMA user_version = 99")
+            db.commit()
         with self.assertRaises(RuntimeError):
             CreatureRepository(self.path)
 
