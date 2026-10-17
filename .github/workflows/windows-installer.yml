@@ -1,0 +1,72 @@
+name: Windows installer
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install package and build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pyinstaller
+
+      - name: Run storage tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Bundle desktop application
+        run: |
+          python -m PyInstaller --noconfirm --clean --windowed --onedir --name DnDGameManager4 --collect-submodules dndgm4 --collect-data dndgm4 dndgm4/__main__.py
+          if (!(Test-Path "dist/DnDGameManager4/DnDGameManager4.exe")) { throw "Missing bundled executable" }
+        shell: pwsh
+
+      - name: Install Inno Setup 6
+        run: choco install innosetup --yes --no-progress
+        shell: pwsh
+
+      - name: Build upgrade-safe installer
+        shell: pwsh
+        run: |
+          $version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { throw "Inno Setup compiler unavailable: $iscc" }
+          & $iscc "/DAppVersion=$version" "installer/DnDGameManager4.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+          if (!(Test-Path "dist/DnDGameManager4-Setup.exe")) { throw "Missing installer" }
+
+      - name: Package portable ZIP
+        shell: pwsh
+        run: Compress-Archive -Path "dist/DnDGameManager4" -DestinationPath "dist/DnDGameManager4-Portable.zip"
+
+      - name: Upload test builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: DnDGameManager4-Windows-${{ github.run_number }}
+          path: |
+            dist/DnDGameManager4-Setup.exe
+            dist/DnDGameManager4-Portable.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: gh release create "${{ github.ref_name }}" "dist/DnDGameManager4-Setup.exe" "dist/DnDGameManager4-Portable.zip" --title "D&D Game Manager ${{ github.ref_name }}" --generate-notes
