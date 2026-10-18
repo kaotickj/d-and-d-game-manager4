@@ -141,11 +141,11 @@ def allocate_default_skills(template: ClassTemplate, budget: int) -> dict[str,in
     if not slots:
         return {}
     left = budget
-    while left and any(ranks[x] < 4 for x in slots):
+    while left and any(ranks[x] < 8 for x in slots):
         for name in slots:
             if left <= 0: break
-            if ranks[name] < 4:
-                ranks[name] += 1
+            if ranks[name] < 8:
+                ranks[name] += 2
                 left -= 1
     return {k:v for k,v in ranks.items() if v}
 
