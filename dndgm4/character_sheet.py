@@ -137,16 +137,19 @@ def skill_budget(class_name: str, intelligence: int, race: str,
 def allocate_default_skills(template: ClassTemplate, budget: int) -> dict[str,int]:
     """Give class skills up to four first-level ranks, budget permitting."""
     ranks = {name:0 for name in SKILLS}
-    slots = [name for name in dict.fromkeys(template.suggested_skills + template.class_skills) if name in ranks and name in template.class_skill_set]
-    if not slots:
-        return {}
+    suggested = [name for name in dict.fromkeys(template.suggested_skills)
+                 if name in ranks and name in template.class_skill_set]
+    remaining = [name for name in template.class_skills
+                 if name in ranks and name not in suggested]
     left = budget
-    while left and any(ranks[x] < 8 for x in slots):
-        for name in slots:
-            if left <= 0: break
-            if ranks[name] < 8:
-                ranks[name] += 2
-                left -= 1
+    # Always prioritize class-specific suggested training first.
+    for group in (suggested, remaining):
+        while left and any(ranks[name] < 8 for name in group):
+            for name in group:
+                if left == 0: break
+                if ranks[name] < 8:
+                    ranks[name] += 2
+                    left -= 1
     return {k:v for k,v in ranks.items() if v}
 
 def validate_allocations(ranks: dict[str,int], template: ClassTemplate,
