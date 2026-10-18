@@ -10,7 +10,7 @@ from importlib.resources import files
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon, QPixmap
-from PyQt6.QtWidgets import QLabel, QSizePolicy
+from PyQt6.QtWidgets import QLabel
 
 _ASSET_NAMES = frozenset({
     "app_banner.jpg",
@@ -35,20 +35,16 @@ def window_icon() -> QIcon:
 
 
 class CoverArtLabel(QLabel):
-    """Accessible aspect-preserving banner without cropping or distortion.
+    """Accessible crop-to-fill banner without image stretching.
 
-    At ultrawide/fullscreen sizes the entire illustration remains visible,
-    instead of cropping its top/bottom and cutting off the title.
+    A fixed-height banner avoids sacrificing the Compendium's table space.
     """
     def __init__(self, image_name: str, *, height: int = 158,
                  description: str = "", parent=None):
         super().__init__(parent)
         self.source = load_artwork(image_name)
         self.setFixedHeight(height)
-        self.setMinimumWidth(0)
-        self.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
+        self.setMinimumWidth(200)
         self.setObjectName("artworkBanner")
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setAccessibleName(description or "Fantasy artwork")
@@ -65,11 +61,11 @@ class CoverArtLabel(QLabel):
             return
         if self.width() <= 0 or self.height() <= 0:
             return
-        # Fit, never crop: on very wide displays the image has quiet margins,
-        # but its dragon, map, title, and border remain intact.
-        fitted = self.source.scaled(
+        expanded = self.source.scaled(
             self.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
             Qt.TransformationMode.SmoothTransformation,
         )
-        self.setPixmap(fitted)
+        left = max(0, (expanded.width() - self.width()) // 2)
+        top = max(0, (expanded.height() - self.height()) // 2)
+        self.setPixmap(expanded.copy(left, top, self.width(), self.height()))

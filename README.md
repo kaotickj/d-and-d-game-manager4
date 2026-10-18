@@ -105,17 +105,16 @@ Current scope: first-level character creation; full multiclass progression,
 expanded feats, skills and equipment mechanics are future milestones.
 
 
-## v0.5.1 — Adaptive Compendium layout
+## v0.5.2: Restore the original banner and layout
 
-The main illustrated banner now fits the whole image, without cropping its
-title, dragon, castle or ornamental border at widescreen resolutions. Its
-height adjusts modestly with the viewport to avoid dominating the screen.
-Select **View full artwork** for a larger view, or **Hide banner / Show banner**
-to give more space to record management.
+Reverts the v0.5.1 changes to the main illustration's presentation. The
+original fixed-height (166px) crop-to-fill banner and its single subtitle line
+are restored. Removes the banner hide/show and full-artwork buttons, returns
+the original dashboard spacing and default window dimensions, and retains
+the classic visual styling. No artwork or character data files were replaced.
 
-The dashboard is no longer locked to a large window size. The central
-workspace and sidebar scroll independently on smaller screens and when OS
-display scaling enlarges text. The record table and character preview appear
-side-by-side on wide windows, and stack vertically under 1130px window width.
-The archive controls and Name Genie remain usable in the narrower layout.
-No saved character data, database schema, or game mechanics have changed.
+**Kept deliberately:** compact window support and the adaptive record/detail
+splitter so all six ability scores remain visible. At narrow widths the record
+preview moves below the table and both can scroll; at regular widths the
+classic side-by-side library preview remains. No D&D mechanics or database
+changes are part of this release.
