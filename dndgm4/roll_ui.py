@@ -1,5 +1,6 @@
 """Fantasy-styled dice tray and level-one character creator dialogs."""
 from __future__ import annotations
+from dataclasses import replace
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -13,6 +14,9 @@ from .creation import (ABILITIES, CORE_CLASSES, RACIAL_ADJUSTMENTS,
                        first_level_hp, first_level_skill_points)
 from .dice import ability_modifier, percentile_answer, roll_dice, roll_expression
 from .name_ui import NamePickerDialog
+from .character_sheet import TEMPLATES, skill_budget
+from .sheet_ui import SheetOptions
+from .ai_ui import AIWritingDialog
 
 
 def text_label(value: str, role: str = "", *, wrap: bool = False) -> QLabel:
@@ -139,8 +143,9 @@ class DiceDialog(QDialog):
 class CharacterCreatorDialog(QDialog):
     """Original methods 1/2 with race adjustments and first-level class stats."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, creature=None):
         super().__init__(parent)
+        self.original = creature
         self.setWindowTitle("The Character Forge | D&D Game Manager 4")
         self.resize(790, 810)
         self.setMinimumSize(650, 590)
@@ -184,6 +189,10 @@ class CharacterCreatorDialog(QDialog):
         id_form.addRow("Race", self.race)
         self.character_class = QComboBox()
         self.character_class.addItems(CORE_CLASSES.keys())
+        for extra in TEMPLATES:
+            if extra not in CORE_CLASSES:
+                self.character_class.addItem(extra)
+        self.character_class.addItem("Custom / Homebrew", "__custom__")
         self.character_class.setAccessibleName("Character class")
         self.character_class.currentIndexChanged.connect(self.update_totals)
         id_form.addRow("Class", self.character_class)
@@ -243,6 +252,9 @@ class CharacterCreatorDialog(QDialog):
         statgrid.setColumnStretch(2, 2)
         body.addWidget(stats)
 
+        self.options = SheetOptions(self.character_class, self.race, self.base_scores)
+        body.addWidget(self.options)
+
         info = QFrame()
         info.setObjectName("panel")
         infobox = QVBoxLayout(info)
@@ -255,6 +267,10 @@ class CharacterCreatorDialog(QDialog):
         self.notes.setPlaceholderText("Optional character notes or background...")
         self.notes.setMinimumHeight(90)
         body.addWidget(self.notes)
+        self.bio_button = QPushButton("Generate Character Biography (Local AI)")
+        self.bio_button.setAccessibleName("Generate biography with locally hosted Qwen3 language model")
+        self.bio_button.clicked.connect(self.write_biography)
+        body.addWidget(self.bio_button)
         scroll.setWidget(sheet)
         outer.addWidget(scroll, 1)
         self.message = text_label("Roll your scores to start.", "muted", wrap=True)
@@ -267,6 +283,39 @@ class CharacterCreatorDialog(QDialog):
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
         self.change_method()
+        if self.original is not None:
+            self.load_character(self.original)
+
+    def load_character(self, creature):
+        self.name.setText(creature.name)
+        self.race.setCurrentText(creature.race_type)
+        self.character_class.setCurrentText(creature.character_class)
+        if self.character_class.currentText() != creature.character_class:
+            self.character_class.setCurrentIndex(self.character_class.count()-1)
+            self.options.custom_class_name.setText(creature.character_class)
+        self.method.setCurrentIndex(2)
+        from .creation import RACIAL_ADJUSTMENTS
+        for attr, field in self.score_inputs.items():
+            modifier=RACIAL_ADJUSTMENTS.get(creature.race_type,{}).get(attr,0)
+            field.setValue(min(18,max(3,getattr(creature,attr)-modifier)))
+        self.notes.setPlainText(creature.notes)
+        self.options.load_existing(creature)
+        self.update_totals()
+
+    def write_biography(self):
+        scores = ", ".join(f"{attr[:3].upper()} {self.score_inputs[attr].value()}"
+                           for attr in ABILITIES)
+        context=(
+            f"Character: {self.name.text().strip() or 'Unnamed'}, "
+            f"Race: {self.race.currentText()}, Class: {self.options.current_class()}, "
+            f"Alignment: {self.options.alignment.currentText()}, {scores}.\n"
+            f"Personality: {self.options.personality.toPlainText()}.\n"
+            f"Player notes: {self.notes.toPlainText()}"
+        )
+        dialog=AIWritingDialog("bio", context, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.generated_text:
+            self.options.background.setPlainText(dialog.generated_text)
+            self.options.tabs.setCurrentIndex(2)
 
     def suggest_name(self):
         picker = NamePickerDialog(race=self.race.currentText(), monster=False, parent=self)
@@ -299,6 +348,8 @@ class CharacterCreatorDialog(QDialog):
             self.roll_details[attr].setText(roll.detail)
         self.message.setText("All six abilities rolled. Choose a race and class, then save.")
         self.update_totals()
+        if self.options.build_mode.currentIndex() == 0:
+            self.options.apply_preset()
 
     def reroll(self, index: int):
         attr = ABILITIES[index]
@@ -328,14 +379,22 @@ class CharacterCreatorDialog(QDialog):
                           and idx not in self.session.rerolled
                           and self.session.rolls[idx].total < 10)
             self.reroll_buttons[attr].setEnabled(can_reroll)
-        hp = first_level_hp(self.character_class.currentText(), scores["constitution"])
-        skills = first_level_skill_points(self.character_class.currentText(),
-                                           scores["intelligence"], self.race.currentText())
+        if hasattr(self, "options"):
+            template=self.options.spec()
+            hp=max(1,template.hit_die+ability_modifier(scores["constitution"]))
+            skills=skill_budget(self.options.current_class(), scores["intelligence"],
+                                self.race.currentText(),
+                                self.options.hit_die.value(),self.options.sp_rate.value())
+            self.options.update_budget()
+        else:
+            hp=first_level_hp(self.character_class.currentText(),scores["constitution"])
+            skills=first_level_skill_points(self.character_class.currentText(),
+                                             scores["intelligence"],self.race.currentText())
         size = "Small (+1 AC)" if self.race.currentText() in ("Gnome", "Halfling") else "Medium"
         self.summary.setText(
             f"Maximum starting HP: {hp}    •    Unassigned skill points: {skills}\n"
             f"Size: {size}    •    Ability modifiers and racial bonuses applied.\n"
-            "Equipment, feat selection, skills and spells will be added in later milestones."
+            "Use the Build, Skills and Story tabs for presets or full manual editing."
         )
 
     def save_character(self):
@@ -345,9 +404,13 @@ class CharacterCreatorDialog(QDialog):
                                 "Roll all six ability scores before saving.")
             return
         try:
-            self.result_creature = build_character(
+            class_name = self.options.current_class()
+            if not class_name:
+                raise ValueError("Enter a name for the custom class.")
+            template = self.options.spec()
+            created = build_character(
                 name=self.name.text(), race=self.race.currentText(),
-                character_class=self.character_class.currentText(),
+                character_class=class_name,
                 base=self.base_scores(),
                 method={"method1": "Original Method 1 (3d6)",
                         "method2": "Original Method 2 (4d6 drop lowest)",
@@ -355,7 +418,15 @@ class CharacterCreatorDialog(QDialog):
                 rolls=self.session.rolls if method != "manual" else None,
                 reroll_notes=self.session.reroll_notes,
                 notes=self.notes.toPlainText(),
+                custom_hit_die=template.hit_die, custom_skill_points=template.skill_points,
             )
+            created=self.options.finish(created)
+            if self.original is not None:
+                created=replace(created,id=self.original.id,
+                                archived=self.original.archived,
+                                created_at=self.original.created_at,
+                                updated_at=self.original.updated_at)
+            self.result_creature=created
         except ValueError as exc:
             QMessageBox.warning(self, "Invalid character", str(exc))
             return
