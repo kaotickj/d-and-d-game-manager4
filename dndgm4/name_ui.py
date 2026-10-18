@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QComboBox, QDialog, QHBoxLayout, QLabel, QListWidget,
+    QApplication, QComboBox, QDialog, QHBoxLayout, QLabel, QListWidget,
     QMessageBox, QPushButton, QVBoxLayout,
 )
 
@@ -18,7 +18,8 @@ from .namegen import (ALL_KINDS, CORE_RACES, EXPANDED_RACES, GENDERS,
 
 class NamePickerDialog(QDialog):
     def __init__(self, *, race: str = "Human", monster: bool = False,
-                 engine: NameEngine | None = None, parent=None):
+                 engine: NameEngine | None = None, parent=None,
+                 standalone: bool = False):
         super().__init__(parent)
         self.setWindowTitle("RPG Name Genie | D&D Game Manager 4")
         self.resize(610, 610)
@@ -26,6 +27,7 @@ class NamePickerDialog(QDialog):
         self.engine = engine or NameEngine()
         self.selected_name: str | None = None
         self.is_monster = monster
+        self.standalone = standalone
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(22, 20, 22, 20)
@@ -37,8 +39,9 @@ class NamePickerDialog(QDialog):
         title.setObjectName("pageTitle")
         outer.addWidget(title)
         intro = QLabel(
-            "Curated names based on RPG Name Genie 2.4. Related species share "
-            "naming traditions, while their original race names remain distinct."
+            "Choose a D&D 3.5 race or creature, then refine its naming style. "
+            "Names use the curated RPG Name Genie 2.4 approach; related "
+            "creatures share coherent linguistic families."
         )
         intro.setObjectName("muted")
         intro.setWordWrap(True)
@@ -80,6 +83,26 @@ class NamePickerDialog(QDialog):
         structures.addWidget(self.structure)
         row.addLayout(structures, 1)
         outer.addLayout(row)
+        # Names in 2.4 may also be filtered by Class, Culture and Tone.
+        # Blank = no restriction. Profiles without this metadata remain eligible.
+        classifications = QHBoxLayout()
+        for title, values, attribute in (
+            ("Class", ("Any class", "Warrior", "Mage", "Rogue", "Ranger", "Cleric",
+                       "Paladin", "Bard", "Druid", "Artificer", "Noble", "Warlock"), "character_class"),
+            ("Culture", ("Any culture", "Highland", "Nordic", "Desert", "Coastal",
+                         "Urban", "Nomadic", "Imperial"), "culture"),
+            ("Tone", ("Any tone", "Heroic", "Dark", "Elegant", "Gritty", "Comic",
+                      "Mystical"), "tone"),
+        ):
+            col = QVBoxLayout()
+            col.addWidget(QLabel(title))
+            selector = QComboBox()
+            selector.addItems(values)
+            selector.setAccessibleName(f"Name Genie {title.lower()} filter")
+            col.addWidget(selector)
+            setattr(self, attribute, selector)
+            classifications.addLayout(col, 1)
+        outer.addLayout(classifications)
 
         self.family = QLabel("")
         self.family.setObjectName("muted")
@@ -96,13 +119,18 @@ class NamePickerDialog(QDialog):
         regenerate.clicked.connect(self.generate)
         footer.addWidget(regenerate)
         footer.addStretch()
-        use = QPushButton("Use Selected Name")
-        use.clicked.connect(self.accept_name)
-        footer.addWidget(use)
+        self.use_button = QPushButton("Copy Selected Name" if standalone else "Use Selected Name")
+        self.use_button.setAccessibleName("Copy selected generated name" if standalone else "Use selected generated name")
+        self.use_button.clicked.connect(self.accept_name)
+        footer.addWidget(self.use_button)
         close = QPushButton("Cancel")
         close.clicked.connect(self.reject)
         footer.addWidget(close)
         outer.addLayout(footer)
+        self.feedback = QLabel("Copy a name to the clipboard to use it anywhere." if standalone else
+                               "Double-click a name to select it.")
+        self.feedback.setObjectName("muted")
+        outer.addWidget(self.feedback)
         self.show_family()
         self.generate()
 
@@ -126,6 +154,9 @@ class NamePickerDialog(QDialog):
                 self.race.currentText(), gender=self.gender.currentText(),
                 monster=self.is_monster, count=8,
                 surname=self.structure.currentData(),
+                character_class=self.character_class.currentText(),
+                culture=self.culture.currentText(),
+                tone=self.tone.currentText(),
             )
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "Unable to generate names", str(exc))
@@ -140,4 +171,8 @@ class NamePickerDialog(QDialog):
             QMessageBox.information(self, "Select a name", "Generate and select a name first.")
             return
         self.selected_name = item.text()
-        self.accept()
+        if self.standalone:
+            QApplication.clipboard().setText(self.selected_name)
+            self.feedback.setText(f"Copied: {self.selected_name}. Generate again or close when finished.")
+        else:
+            self.accept()

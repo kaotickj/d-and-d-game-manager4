@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from . import __version__
 from .models import Creature, KIND_LABELS
 from .storage import CreatureRepository
 from .name_ui import NamePickerDialog
@@ -184,7 +185,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.library = library
         self.active_kind = None
-        self.setWindowTitle("Dungeons & Dragons Game Manager 4 · The Compendium")
+        self.setWindowTitle(f"Dungeons & Dragons Game Manager 4 · {__version__} · The Compendium")
         self.resize(1380, 840)
         self.setMinimumSize(1010, 650)
         central = QWidget()
@@ -206,6 +207,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+F"), self, activated=self.search.setFocus)
         QShortcut(QKeySequence("Ctrl+N"), self, activated=lambda: self.create("pc"))
         QShortcut(QKeySequence("Ctrl+D"), self, activated=self.open_dice)
+        QShortcut(QKeySequence("Ctrl+G"), self, activated=self.open_names)
         self.refresh()
 
     def setup_sidebar(self, shell):
@@ -250,6 +252,10 @@ class MainWindow(QMainWindow):
         dice_button.setAccessibleName("Open the Dice Eliminator")
         layout.addWidget(dice_button)
         layout.addWidget(caption("Ctrl+D opens the dice tray", "muted"))
+        names_button = action("RPG NAME GENIE  /  Generate Names", self.open_names, "primaryButton")
+        names_button.setAccessibleName("Open standalone RPG Name Genie name generator")
+        layout.addWidget(names_button)
+        layout.addWidget(caption("Ctrl+G opens the Name Genie", "muted"))
         layout.addSpacing(8)
         layout.addWidget(caption("QUICK CREATE", "eyebrow"))
         for title, kind in (("+  New Character", "pc"), ("+  New NPC", "npc"),
@@ -260,7 +266,7 @@ class MainWindow(QMainWindow):
             layout.addWidget(control)
         layout.addStretch()
         layout.addWidget(rule())
-        layout.addWidget(caption("D&D 3.5  ·  OFFLINE", "eyebrow"))
+        layout.addWidget(caption(f"D&D 3.5  ·  v{__version__}  ·  OFFLINE", "eyebrow"))
         layout.addWidget(caption("Your chronicles stay on this computer.", "muted", wrap=True))
 
     def setup_hero(self, root):
@@ -274,9 +280,14 @@ class MainWindow(QMainWindow):
         intro.addWidget(caption("The Adventurer's Archive", "pageTitle"))
         intro.addWidget(caption("A place for legends, villains, and everything in between.", "muted"))
         row.addLayout(intro, 1)
+        top_actions = QVBoxLayout()
+        open_names = action("Generate Names", self.open_names, "primaryButton")
+        open_names.setAccessibleName("Open standalone Name Genie from home screen")
+        top_actions.addWidget(open_names)
         tag = caption("THE COMPENDIUM", "tag")
+        top_actions.addWidget(tag)
         tag.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        row.addWidget(tag)
+        row.addLayout(top_actions)
         root.addWidget(hero)
 
     def setup_metrics(self, root):
@@ -496,6 +507,11 @@ class MainWindow(QMainWindow):
             return
         self.refresh(select_id=saved.id)
         self.statusBar().showMessage(f"Saved {saved.name}  ·  {self.library.path}")
+
+    def open_names(self):
+        """Standalone Name Genie, accessible even when no records exist."""
+        dialog = NamePickerDialog(race="Human", standalone=True, parent=self)
+        dialog.exec()
 
     def open_dice(self):
         dialog = DiceDialog(self)
