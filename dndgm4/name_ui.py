@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QPushButton, QVBoxLayout,
 )
 
+from .ai_ui import AIWritingDialog
 from .namegen import (ALL_KINDS, CORE_RACES, EXPANDED_RACES, GENDERS,
                       MONSTER_RACES, NameEngine, UnsupportedCreature,
                       family_for)
@@ -135,6 +136,10 @@ class NamePickerDialog(QDialog):
         regenerate.setObjectName("primaryButton")
         regenerate.clicked.connect(self.generate)
         footer.addWidget(regenerate)
+        ai_names = QPushButton("AI Name Ideas (Local)")
+        ai_names.setAccessibleName("Generate optional name ideas using a local Qwen3 language model")
+        ai_names.clicked.connect(self.ai_names)
+        footer.addWidget(ai_names)
         footer.addStretch()
         self.use_button = QPushButton("Copy Selected Name" if standalone else "Use Selected Name")
         self.use_button.setAccessibleName("Copy selected generated name" if standalone else "Use selected generated name")
@@ -180,6 +185,29 @@ class NamePickerDialog(QDialog):
             return
         self.list_widget.addItems(names)
         if names:
+            self.list_widget.setCurrentRow(0)
+
+    def ai_names(self):
+        try:
+            family = family_for(self.race.currentText())
+        except UnsupportedCreature:
+            family = "Custom / unspecified"
+        context = (
+            f"Race or creature: {self.race.currentText()}, naming family: "
+            f"{family}, gender: {self.gender.currentText()}, "
+            f"class: {self.character_class.currentText()}, "
+            f"culture: {self.culture.currentText()}, tone: {self.tone.currentText()}. "
+            "Return 8 original names."
+        )
+        dialog = AIWritingDialog("names", context, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.generated_text:
+            return
+        names = [line.strip().strip("0123456789. -•")
+                 for line in dialog.generated_text.splitlines()
+                 if line.strip()][:8]
+        self.list_widget.clear()
+        self.list_widget.addItems([n[:140] for n in names if n])
+        if self.list_widget.count():
             self.list_widget.setCurrentRow(0)
 
     def accept_name(self):

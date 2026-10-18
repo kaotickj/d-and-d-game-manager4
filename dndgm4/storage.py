@@ -12,12 +12,12 @@ from uuid import uuid4
 
 from .models import Creature, KINDS
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 WRITE_COLUMNS = (
     "name", "kind", "race_type", "character_class", "level",
     "challenge_rating", "armor_class", "max_hit_points",
     "strength", "dexterity", "constitution", "intelligence",
-    "wisdom", "charisma", "notes", "archived",
+    "wisdom", "charisma", "notes", "archived", "sheet_json",
 )
 
 
@@ -44,6 +44,16 @@ def validate(creature: Creature) -> None:
         raise ValueError("Armor class must be between 0 and 999.")
     if not 0 <= creature.max_hit_points <= 999999:
         raise ValueError("Maximum hit points must be between 0 and 999999.")
+    if len(creature.sheet_json) > 262144:
+        raise ValueError("Character sheet exceeds the maximum size.")
+    if creature.sheet_json:
+        import json
+        try:
+            sheet = json.loads(creature.sheet_json)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("Character sheet must contain valid JSON.") from exc
+        if not isinstance(sheet, dict):
+            raise ValueError("Character sheet must be an object.")
     for attr in ("strength", "dexterity", "constitution",
                  "intelligence", "wisdom", "charisma"):
         if not 0 <= getattr(creature, attr) <= 99:
@@ -97,6 +107,7 @@ class CreatureRepository:
                         wisdom INTEGER NOT NULL DEFAULT 10,
                         charisma INTEGER NOT NULL DEFAULT 10,
                         notes TEXT NOT NULL DEFAULT '',
+                        sheet_json TEXT NOT NULL DEFAULT '',
                         archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
                         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -105,8 +116,11 @@ class CreatureRepository:
                         ON creatures(kind, name COLLATE NOCASE);
                     CREATE INDEX IF NOT EXISTS idx_creatures_archived
                         ON creatures(archived);
-                    PRAGMA user_version = 1;
+                    PRAGMA user_version = 2;
                 """)
+            elif version == 1:
+                db.execute("ALTER TABLE creatures ADD COLUMN sheet_json TEXT NOT NULL DEFAULT ''")
+                db.execute("PRAGMA user_version = 2")
 
     @staticmethod
     def _from_row(row: sqlite3.Row) -> Creature:
@@ -152,7 +166,7 @@ class CreatureRepository:
         validate(creature)
         record_id = creature.id or str(uuid4())
         values = [getattr(creature, column) for column in WRITE_COLUMNS]
-        values[-1] = int(creature.archived)
+        values[WRITE_COLUMNS.index("archived")] = int(creature.archived)
         columns = ("id",) + WRITE_COLUMNS
         placeholders = ",".join("?" for _ in columns)
         set_clause = ", ".join(

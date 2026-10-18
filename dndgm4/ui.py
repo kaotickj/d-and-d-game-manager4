@@ -16,6 +16,7 @@ from .models import Creature, KIND_LABELS
 from .storage import CreatureRepository
 from .name_ui import NamePickerDialog
 from .roll_ui import CharacterCreatorDialog, DiceDialog
+from .ai_ui import AIWritingDialog
 
 
 ABILITIES = (("strength", "STR"), ("dexterity", "DEX"), ("constitution", "CON"),
@@ -210,6 +211,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+N"), self, activated=lambda: self.create("pc"))
         QShortcut(QKeySequence("Ctrl+D"), self, activated=self.open_dice)
         QShortcut(QKeySequence("Ctrl+G"), self, activated=self.open_names)
+        QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=self.open_narrator)
         self.refresh()
 
     def setup_sidebar(self, shell):
@@ -263,6 +265,9 @@ class MainWindow(QMainWindow):
         names_button.setAccessibleName("Open standalone RPG Name Genie name generator")
         layout.addWidget(names_button)
         layout.addWidget(caption("Ctrl+G opens the Name Genie", "muted"))
+        narrator = action("The Scribe  /  DM Narration", self.open_narrator)
+        narrator.setAccessibleName("Open the local AI Dungeon Master narration tool")
+        layout.addWidget(narrator)
         layout.addSpacing(8)
         layout.addWidget(caption("QUICK CREATE", "eyebrow"))
         for title, kind in (("+  New Character", "pc"), ("+  New NPC", "npc"),
@@ -512,6 +517,13 @@ class MainWindow(QMainWindow):
         dialog = NamePickerDialog(race="Human", standalone=True, parent=self)
         dialog.exec()
 
+    def open_narrator(self):
+        record = self.selected()
+        context = (f"Scene features {record.name}, a {record.race_type} {record.character_class}. "
+                   f"Notes: {record.notes[:900]}" if record else "")
+        writer = AIWritingDialog("dm", context, self)
+        writer.exec()
+
     def open_dice(self):
         dialog = DiceDialog(self)
         dialog.exec()
@@ -528,7 +540,10 @@ class MainWindow(QMainWindow):
         record = self.selected()
         if record is None:
             return
-        dialog = CreatureEditor(record, self)
+        if record.kind == "pc" and record.sheet_json and record.level == 1:
+            dialog = CharacterCreatorDialog(self, creature=record)
+        else:
+            dialog = CreatureEditor(record, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.persist(dialog.result_creature)
 

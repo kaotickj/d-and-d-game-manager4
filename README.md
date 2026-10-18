@@ -67,8 +67,39 @@ On the **main window** click **Generate Names** in the header, or **RPG NAME GEN
 
 The previous v0.4.0 build incorrectly hid the Name Genie behind the create/edit dialogs, so users saw no Name Genie control on the main window. v0.4.1 fixes that UI failure. It does not yet reproduce all standalone Name Genie 2.4 features (editing, managing, and importing custom name dictionaries and pattern templates), which remain a later expansion.
 
-## Fantasy artwork and interface (v0.4.2)
+## Fantasy artwork and interface (v0.5.0)
 
 The Compendium now includes a self-contained illustrated fantasy header (dragon, d20 and distant stronghold), a matching dragon/d20 emblem for the sidebar and Windows executable, and a dedicated quill/scroll/d20 crest in RPG Name Genie. The assets live in `dndgm4/assets/`, are packaged into wheels and PyInstaller bundles, and do not require an internet connection. The images were created specifically for this application; no official D&D sourcebook or brand logos are embedded.
 
 The **topmost Generate Names action was removed** from the main content header. Name generation is still found under **RPG NAME GENIE / Generate Names** in the sidebar and with **Ctrl+G**, and within character/monster editors. The UI uses warmer bronze panel edges, subtler slate backgrounds and high-contrast parchment-colored focus borders. Original SQLite data and mechanics were not changed.
+
+
+## v0.5.0: Complete starter character sheets and optional local AI
+
+**Character Forge** retains original 3d6/4d6 ability generation and adds editable
+class builds, first-level skills, feats, equipment, background and spells/powers.
+Core 3.5 base classes receive recommended starting builds. Selected supplemental
+classes (Scout, Warlock, Hexblade, Favored Soul, Duskblade, Ninja, Artificer and
+more) use GM-editable templates, NOT complete sourcebook class feature and spell
+implementations. Choose a recommended, custom, or blank sheet; custom homebrew
+classes have editable hit dice and skill-point rates. The Skills tab tracks
+first-level points, class/cross-class costs and rank caps. Feats, equipment,
+special features, languages, appearance and personality are freely editable.
+Feat prerequisites, spells, equipment prices, and multi-level advancement remain
+GM-reviewed, not automatically calculated.
+
+Characters now save a structured v2 JSON sheet in the existing SQLite library.
+Older v1 libraries migrate in place, preserving existing saved records and notes.
+New first-level character sheets can be reopened and edited in the Forge.
+
+**The Scribe** can suggest character bios, original names, and DM narration.
+It runs only when a user presses Generate, against a Qwen3 text language model
+at 127.0.0.1:11434 using Ollama's local /api/generate endpoint. Default model
+name is qwen3:4b; the model name is editable. The app does not download or bundle
+models or send requests over the internet. Qwen3-TTS from Plague's Voice Studio
+is a speech model, not a prose generation model; an Ollama-compatible Qwen3 LLM
+must already be available locally for text generation. Generated drafts are
+editable and must be reviewed before use. No cloud account is required.
+
+Current scope: first-level character creation; full multiclass progression,
+expanded feats, skills and equipment mechanics are future milestones.

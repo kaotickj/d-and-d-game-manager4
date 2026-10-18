@@ -106,19 +106,34 @@ def build_character(*, name: str, race: str, character_class: str,
                     base: dict[str, int], method: str,
                     rolls: list[DiceResult] | None = None,
                     reroll_notes: list[str] | None = None,
-                    notes: str = "") -> Creature:
+                    notes: str = "", custom_hit_die: int | None = None,
+                    custom_skill_points: int | None = None) -> Creature:
     """Create a level-one PC ready for the existing SQLite library."""
     if not name.strip():
         raise ValueError("Character name is required.")
-    if race not in RACIAL_ADJUSTMENTS or character_class not in CORE_CLASSES:
-        raise ValueError("Choose a supported D&D 3.5 race and class.")
+    if race not in RACIAL_ADJUSTMENTS:
+        raise ValueError("Choose a supported D&D 3.5 race.")
+    if character_class not in CORE_CLASSES and (
+        custom_hit_die is None or custom_skill_points is None
+    ):
+        raise ValueError("Custom classes require a hit die and skill-point rate.")
+    if custom_hit_die is not None and not 4 <= custom_hit_die <= 20:
+        raise ValueError("Hit die must be between d4 and d20.")
+    if custom_skill_points is not None and not 1 <= custom_skill_points <= 20:
+        raise ValueError("Class skill points must be between 1 and 20.")
     if any(not 3 <= score <= 18 for score in base.values()):
         # For manual entry and standard array, the basic unadjusted scores.
         raise ValueError("Base scores must be between 3 and 18.")
     final = adjusted_scores(base, race)
-    hp = first_level_hp(character_class, final["constitution"])
+    hit_die = (CORE_CLASSES[character_class][0] if character_class in CORE_CLASSES
+               else custom_hit_die)
+    hp = max(1, hit_die + ability_modifier(final["constitution"]))
     ac = 10 + ability_modifier(final["dexterity"]) + (1 if race in SMALL_RACES else 0)
-    skill = first_level_skill_points(character_class, final["intelligence"], race)
+    skill_rate = (CORE_CLASSES[character_class][1] if character_class in CORE_CLASSES
+                  else custom_skill_points)
+    skill = max(1, skill_rate + ability_modifier(final["intelligence"])) * 4
+    if race == "Human":
+        skill += 4
     info = [
         f"Character created using {method}; base scores: " +
         ", ".join(f"{key[:3].upper()} {base[key]}" for key in ABILITIES),
