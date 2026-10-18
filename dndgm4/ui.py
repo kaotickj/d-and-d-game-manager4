@@ -237,7 +237,6 @@ class MainWindow(QMainWindow):
         sidebar_scroll.setFrameShape(QFrame.Shape.NoFrame)
         sidebar_scroll.setWidgetResizable(True)
         sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        sidebar_scroll.setWidget(sidebar)
         shell.addWidget(sidebar_scroll)
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(16, 16, 16, 14)
@@ -300,6 +299,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(rule())
         layout.addWidget(caption(f"D&D 3.5  ·  v{__version__}  ·  OFFLINE", "eyebrow"))
         layout.addWidget(caption("Your chronicles stay on this computer.", "muted", wrap=True))
+        # Qt expects a scroll widget's layout to exist before setWidget().
+        sidebar_scroll.setWidget(sidebar)
 
     def setup_hero(self, root):
         # Artwork includes the title. The former top Generate Names button
