@@ -39,12 +39,7 @@ class FantasyArtworkTests(unittest.TestCase):
             window.show()
             self.app.processEvents()
             self.assertFalse(window.hero_banner.pixmap().isNull())
-            # Responsive artwork height replaces the old fixed 166px crop.
-            self.assertGreaterEqual(window.hero_banner.height(), 142)
-            self.assertLessEqual(window.hero_banner.height(), 238)
-            rendered = window.hero_banner.pixmap()
-            self.assertLessEqual(rendered.width(), window.hero_banner.width())
-            self.assertLessEqual(rendered.height(), window.hero_banner.height())
+            self.assertEqual(window.hero_banner.height(), 166)
             self.assertFalse(window.windowIcon().isNull())
             buttons = [
                 b for b in window.findChildren(QPushButton)
