@@ -406,9 +406,14 @@ class MainWindow(QMainWindow):
         scores = QGridLayout()
         scores.setSpacing(8)
         self.stat_values = {}
+        # Never let the record preview's vertical layout squash the six
+        # ability tiles into wide, almost-flat rectangles. Fixed square
+        # frames remain legible in both the stacked and side-by-side views.
         for i, (attribute, code) in enumerate(ABILITIES):
             tile = QFrame()
             tile.setObjectName("statChip")
+            tile.setFixedSize(76, 76)
+            tile.setAccessibleName(f"{code} ability score")
             tile_layout = QVBoxLayout(tile)
             tile_layout.setContentsMargins(8, 7, 8, 7)
             tile_layout.setSpacing(1)
@@ -419,7 +424,8 @@ class MainWindow(QMainWindow):
             value.setAlignment(Qt.AlignmentFlag.AlignCenter)
             tile_layout.addWidget(value)
             self.stat_values[attribute] = value
-            scores.addWidget(tile, *divmod(i, 3))
+            scores.addWidget(tile, *divmod(i, 3),
+                             Qt.AlignmentFlag.AlignCenter)
         # Keep all six score chips evenly spaced at every supported width.
         for column in range(3):
             scores.setColumnStretch(column, 1)
