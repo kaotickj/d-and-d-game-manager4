@@ -1,5 +1,6 @@
 """Check deterministic D&D naming families and read-only v2.4 compatibility."""
 import random
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -56,7 +57,7 @@ class NamingRulesTests(unittest.TestCase):
     def test_v24_schema_read_only_without_creating_missing_database(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "namegenie_v24.sqlite3"
-            with sqlite3.connect(p) as db:
+            with closing(sqlite3.connect(p)) as db:
                 db.executescript("""
                     CREATE TABLE entries(id INTEGER PRIMARY KEY, name TEXT, role TEXT);
                     CREATE TABLE tags(entry_id INTEGER, facet TEXT, value TEXT);
@@ -71,6 +72,7 @@ class NamingRulesTests(unittest.TestCase):
                     INSERT INTO tags VALUES (3,'Genre','Fantasy');
                     INSERT INTO tags VALUES (3,'Species','Elf');
                 """)
+                db.commit()
             before = p.read_bytes()
             self.assertEqual(read_v24_bank(p,"Elf","Given","Masculine"),
                              ["V24OriginalName"])
