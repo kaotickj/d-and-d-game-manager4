@@ -33,7 +33,7 @@ jobs:
 
       - name: Bundle desktop application
         run: |
-          python -m PyInstaller --noconfirm --clean --windowed --onedir --name DnDGameManager4 --collect-submodules dndgm4 --collect-data dndgm4 build/windows_launcher.py
+          python -m PyInstaller --noconfirm --clean --windowed --onedir --name DnDGameManager4 --icon dndgm4/assets/app_icon.ico --collect-submodules dndgm4 --collect-data dndgm4 build/windows_launcher.py
           if (!(Test-Path "dist/DnDGameManager4/DnDGameManager4.exe")) { throw "Missing bundled executable" }
         shell: pwsh
 
