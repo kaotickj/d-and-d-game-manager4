@@ -10,7 +10,7 @@ from importlib.resources import files
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon, QPixmap
-from PyQt6.QtWidgets import QLabel
+from PyQt6.QtWidgets import QLabel, QSizePolicy
 
 _ASSET_NAMES = frozenset({
     "app_banner.jpg",
@@ -35,16 +35,20 @@ def window_icon() -> QIcon:
 
 
 class CoverArtLabel(QLabel):
-    """Accessible crop-to-fill banner without image stretching.
+    """Accessible aspect-preserving banner without cropping or distortion.
 
-    A fixed-height banner avoids sacrificing the Compendium's table space.
+    At ultrawide/fullscreen sizes the entire illustration remains visible,
+    instead of cropping its top/bottom and cutting off the title.
     """
     def __init__(self, image_name: str, *, height: int = 158,
                  description: str = "", parent=None):
         super().__init__(parent)
         self.source = load_artwork(image_name)
         self.setFixedHeight(height)
-        self.setMinimumWidth(200)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.setObjectName("artworkBanner")
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setAccessibleName(description or "Fantasy artwork")
@@ -61,11 +65,11 @@ class CoverArtLabel(QLabel):
             return
         if self.width() <= 0 or self.height() <= 0:
             return
-        expanded = self.source.scaled(
+        # Fit, never crop: on very wide displays the image has quiet margins,
+        # but its dragon, map, title, and border remain intact.
+        fitted = self.source.scaled(
             self.size(),
-            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
-        left = max(0, (expanded.width() - self.width()) // 2)
-        top = max(0, (expanded.height() - self.height()) // 2)
-        self.setPixmap(expanded.copy(left, top, self.width(), self.height()))
+        self.setPixmap(fitted)
