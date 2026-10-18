@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 
 from .models import Creature, KIND_LABELS
 from .storage import CreatureRepository
+from .roll_ui import CharacterCreatorDialog, DiceDialog
 
 
 ABILITIES = (("strength", "STR"), ("dexterity", "DEX"), ("constitution", "CON"),
@@ -188,6 +189,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Local library · " + str(self.library.path))
         QShortcut(QKeySequence("Ctrl+F"), self, activated=self.search.setFocus)
         QShortcut(QKeySequence("Ctrl+N"), self, activated=lambda: self.create("pc"))
+        QShortcut(QKeySequence("Ctrl+D"), self, activated=self.open_dice)
         self.refresh()
 
     def setup_sidebar(self, shell):
@@ -227,6 +229,12 @@ class MainWindow(QMainWindow):
         self.nav[None].setChecked(True)
         layout.addSpacing(12)
         layout.addWidget(rule())
+        layout.addWidget(caption("THE GAME MASTER'S TOOLS", "eyebrow"))
+        dice_button = action("Roll Dice  /  Dice Eliminator", self.open_dice, "primaryButton")
+        dice_button.setAccessibleName("Open the Dice Eliminator")
+        layout.addWidget(dice_button)
+        layout.addWidget(caption("Ctrl+D opens the dice tray", "muted"))
+        layout.addSpacing(8)
         layout.addWidget(caption("QUICK CREATE", "eyebrow"))
         for title, kind in (("+  New Character", "pc"), ("+  New NPC", "npc"),
                             ("+  New Monster", "monster")):
@@ -473,8 +481,15 @@ class MainWindow(QMainWindow):
         self.refresh(select_id=saved.id)
         self.statusBar().showMessage(f"Saved {saved.name}  ·  {self.library.path}")
 
+    def open_dice(self):
+        dialog = DiceDialog(self)
+        dialog.exec()
+
     def create(self, kind):
-        dialog = CreatureEditor(Creature(name="", kind=kind), self)
+        if kind == "pc":
+            dialog = CharacterCreatorDialog(self)
+        else:
+            dialog = CreatureEditor(Creature(name="", kind=kind), self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.persist(dialog.result_creature)
 
