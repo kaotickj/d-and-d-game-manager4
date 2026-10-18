@@ -1,9 +1,10 @@
-"""Regression tests for the banner's aspect ratio and responsive dashboard."""
+"""Regression tests: classic banner restored; ability scores remain responsive."""
 from importlib.util import find_spec
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+
 
 @unittest.skipUnless(find_spec("PyQt6") is not None, "PyQt6 unavailable")
 class ResponsiveLayoutTests(unittest.TestCase):
@@ -15,60 +16,63 @@ class ResponsiveLayoutTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         apply_theme(cls.app)
 
-    def test_no_cropping_at_fullscreen_and_small_widths(self):
+    def test_classic_banner_fills_its_original_fixed_height(self):
         from dndgm4.artwork import CoverArtLabel
-        banner=CoverArtLabel("app_banner.jpg",height=170)
+        banner = CoverArtLabel("app_banner.jpg", height=166)
         self.assertFalse(banner.source.isNull())
-        for width,height in ((470,150),(850,170),(1600,200),(2100,238)):
+        for width in (470, 850, 1200, 1600, 2100):
             with self.subTest(width=width):
-                banner.setFixedHeight(height)
-                banner.resize(width,height)
+                banner.resize(width, 166)
                 self.app.processEvents()
                 banner.update_picture()
-                displayed=banner.pixmap()
-                self.assertFalse(displayed.isNull())
-                self.assertLessEqual(displayed.width(),width)
-                self.assertLessEqual(displayed.height(),height)
-                # The entire source is scaled, so aspect ratio is retained.
-                ratio=displayed.width()/displayed.height()
-                original=banner.source.width()/banner.source.height()
-                self.assertAlmostEqual(ratio,original,delta=.08)
+                rendered = banner.pixmap()
+                self.assertFalse(rendered.isNull())
+                self.assertEqual(banner.height(), 166)
+                self.assertEqual(rendered.size(), banner.size())
         banner.close()
 
-    def test_compact_window_uses_stacked_preview_and_can_hide_art(self):
+    def test_preview_stacks_without_changing_original_dashboard_art(self):
         from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QScrollArea, QPushButton
         from dndgm4.ui import MainWindow
+        from dndgm4.models import Creature
         from dndgm4.storage import CreatureRepository
-        with TemporaryDirectory() as d:
-            window=MainWindow(CreatureRepository(Path(d)/"test.sqlite3"))
-            window.resize(895,640)
+        with TemporaryDirectory() as folder:
+            repo = CreatureRepository(Path(folder) / "test.sqlite3")
+            hero = repo.save(Creature(
+                name="Six Abilities", kind="pc", strength=18,
+                dexterity=16, constitution=14, intelligence=12,
+                wisdom=10, charisma=8,
+            ))
+            window = MainWindow(repo)
+            window.resize(895, 640)
             window.show()
             self.app.processEvents()
-            self.assertEqual(window.library_splitter.orientation(),
-                             Qt.Orientation.Vertical)
-            self.assertIsInstance(window.workspace_scroll,QScrollArea)
-            self.assertIsNotNone(window.findChild(QScrollArea,"sidebarScroll"))
-            self.assertTrue(window.hero_banner.isVisible())
-            self.assertTrue(window.full_art_button.isEnabled())
-            self.assertEqual(window.table.columnCount(),6)
-            window.toggle_banner()
-            self.app.processEvents()
-            self.assertFalse(window.hero_banner.isVisible())
-            self.assertEqual(window.collapse_art_button.text(),"Show banner")
-            window.toggle_banner()
-            self.assertTrue(window.hero_banner.isVisible())
+            self.assertEqual(window.library_splitter.orientation(), Qt.Orientation.Vertical)
+            self.assertIsInstance(window.workspace_scroll, QScrollArea)
+            self.assertEqual(window.hero_banner.height(), 166)
             self.assertFalse(any(
-                b.text()=="Generate Names"
+                b.text() in ("Hide banner", "Show banner", "View full artwork")
                 for b in window.findChildren(QPushButton)
             ))
-            window.resize(1490,920)
+            self.assertFalse(window.hero_banner.pixmap().isNull())
+            for row in range(window.table.rowCount()):
+                if window.table.item(row, 0).data(Qt.ItemDataRole.UserRole) == hero.id:
+                    window.table.selectRow(row)
+                    break
             self.app.processEvents()
-            self.assertEqual(window.library_splitter.orientation(),
-                             Qt.Orientation.Horizontal)
-            displayed=window.hero_banner.pixmap()
-            self.assertLessEqual(displayed.width(),window.hero_banner.width())
-            self.assertLessEqual(displayed.height(),window.hero_banner.height())
+            expected = {
+                "strength": "18", "dexterity": "16",
+                "constitution": "14", "intelligence": "12",
+                "wisdom": "10", "charisma": "8",
+            }
+            self.assertEqual({a: w.text() for a, w in window.stat_values.items()}, expected)
+            window.resize(1490, 920)
+            self.app.processEvents()
+            self.assertEqual(window.library_splitter.orientation(), Qt.Orientation.Horizontal)
+            self.assertEqual(window.hero_banner.height(), 166)
+            self.assertEqual({a: w.text() for a, w in window.stat_values.items()}, expected)
+            self.assertEqual(window.table.columnCount(), 6)
             window.close()
 
 
