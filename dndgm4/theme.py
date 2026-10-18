@@ -66,6 +66,9 @@ QCheckBox { color: #c8d0c6; spacing: 8px; background: transparent; }
 QCheckBox::indicator { width: 17px; height: 17px; }
 QCheckBox::indicator:unchecked { border: 1px solid #8e987f; background: #172321; border-radius: 3px; }
 QCheckBox::indicator:checked { border: 1px solid #e0b875; background: #ba9256; border-radius: 3px; }
+QListWidget { background: #1a2323; alternate-background-color: #202d2a; color: #efe8d8; border: 1px solid #3b4945; border-radius: 8px; padding: 5px; }
+QListWidget::item { padding: 9px 12px; }
+QListWidget::item:selected { background: #3b5044; color: #ffedca; }
 QTableWidget { background: #1a2323; alternate-background-color: #202d2a; color: #efe8d8; border: none; gridline-color: #384741; outline: none; selection-background-color: #3c5046; selection-color: #fff2d6; font-size: 11px; }
 QTableWidget::item { padding: 8px 10px; border-bottom: 1px solid #37443e; }
 QTableWidget::item:selected { background: #3b5044; color: #ffedca; }
