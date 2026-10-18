@@ -154,6 +154,47 @@ BANKS = {
         "Family": "Stormborn Ashveil Stonewake Flameward Tiderun",
     },
 }
+
+# Character names from the 2.4 curated starter are grouped by gender.
+# "Unspecified" draws from the full culture bank; Nonbinary prefers neutral.
+GENDER_BANKS = {
+    "Human": {
+        "Masculine": "Aldric Cedric Garrick Eamon Leoric Tristan Ronan Edric",
+        "Feminine": "Elara Isolde Mira Rowena Tamsin Briony Seraphine Lyanna",
+        "Neutral": "Ash Rowan Arden Wren Ari Bell Cade Jules",
+    },
+    "Elf": {
+        "Masculine": "Faelar Theron Aerendil Caelion Valen Lethar Eryndor Ithilien",
+        "Feminine": "Aelira Elowen Liraeth Sylvara Naevys Thalira Elaria Mirelle",
+        "Neutral": "Aeris Saelis Vael Elian Meris Lior Caelan Eir",
+    },
+    "Dwarf": {
+        "Masculine": "Borin Durnan Thorek Baldrin Korrin Grumdir Barund Odrik",
+        "Feminine": "Brynja Hilda Dagna Torhild Runa Astrid Freydis Gudra",
+        "Neutral": "Keld Brenn Torren Brin Dain Hurin",
+    },
+    "Orc": {
+        "Masculine": "Gorak Thurog Makhar Urgoth Brogar Kargun Drokh",
+        "Feminine": "Grasha Mogha Urzha Korga Draga Shurka",
+        "Neutral": "Rukh Thrak Ghor Vash Zog Krug",
+    },
+    "Gnome": {
+        "Masculine": "Boddynock Dimble Fenwick Gerbo Jebeddo Namfoodle Orryn Roondar",
+        "Feminine": "Bimpnottin Caramip Ellyjobell Lorilla Nissa Roywyn Tana Zanna",
+        "Neutral": "Nim Bix Jinx Rolo Cogo Fen Tink",
+    },
+    "Halfling": {
+        "Masculine": "Alton Corrin Garret Jeb Milo Osborn Perrin Roscoe",
+        "Feminine": "Callie Daisy Esme Kithri Lila Marigold Nora Ruby",
+        "Neutral": "Pip Rowan Bram Dell Clover Mica",
+    },
+    "Draconic": {
+        "Masculine": "Arjhan Balasar Rhogar Medrash Kriv Torinn Bharash Ghesh",
+        "Feminine": "Akra Nala Surina Biri Farideh Harann Perra Sora",
+        "Neutral": "Varan Arix Ciriq Iadra Rhasha",
+    },
+}
+
 # All non-core families are original extension material, not copied game text.
 MONSTER_EPITHETS = {
     "Draconic": ("the Coil", "of the Scales", "the Flame-Tongued", "the Marsh Stalker"),
@@ -226,7 +267,11 @@ class NameEngine:
         self.rng = rng if rng is not None else random.SystemRandom()
 
     def _bank(self, family: str, role: str, gender: str) -> list[str]:
-        names = list(dict.fromkeys(BANKS[family].get(role, "").split()))
+        bank = BANKS[family].get(role, "")
+        if role == "Given" and gender != "Unspecified":
+            gender_key = "Neutral" if gender == "Nonbinary" else gender
+            bank = GENDER_BANKS.get(family, {}).get(gender_key, bank)
+        names = list(dict.fromkeys(bank.split()))
         source = V24_SPECIES.get(family)
         if source:
             try:
