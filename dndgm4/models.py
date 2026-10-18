@@ -27,6 +27,7 @@ class Creature:
     wisdom: int = 10
     charisma: int = 10
     notes: str = ""
+    sheet_json: str = ""
     archived: bool = False
     created_at: str = ""
     updated_at: str = ""
