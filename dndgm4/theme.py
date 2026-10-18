@@ -36,12 +36,12 @@ QLabel#metricValue { font-family: __DISPLAY__; font-size: 25px; font-weight: 700
 QLabel#metricLabel { font-size: 10px; color: #b7bbae; font-weight: 700; }
 QLabel#crest { font-family: __DISPLAY__; font-size: 22px; color: #dec18e; background: #293431; border: 1px solid #88704a; border-radius: 27px; }
 QLabel#tag { font-size: 10px; font-weight: 700; color: #d7be8e; background: #2b352f; padding: 5px 9px; border-radius: 8px; }
-QFrame#sidebar { background: #17201f; border-right: 1px solid #3a443d; }
+QFrame#sidebar { background: #191c1d; border-right: 1px solid #68543b; }
 QFrame#hero { background: #202b29; border: 1px solid #4b5548; border-left: 3px solid #c49a62; border-radius: 13px; }
-QFrame#panel { background: #1a2323; border: 1px solid #3b4945; border-radius: 12px; }
-QFrame#metric { background: #1d2927; border: 1px solid #3c4d43; border-radius: 11px; }
+QFrame#panel { background: #1e2525; border: 1px solid #5a5245; border-radius: 12px; }
+QFrame#metric { background: #242a29; border: 1px solid #65543c; border-radius: 11px; }
 QFrame#divider { background: #4c4a3c; max-height: 1px; min-height: 1px; }
-QFrame#statChip { background: #26332f; border: 1px solid #42524a; border-radius: 8px; }
+QFrame#statChip { background: #2b302d; border: 1px solid #665338; border-radius: 8px; }
 QLabel#statName { font-size: 10px; font-weight: 700; color: #c2aa7e; }
 QLabel#statValue { font-family: __DISPLAY__; font-size: 18px; font-weight: 700; color: #f5e4c3; }
 QPushButton { color: #ede6d6; background: #2a3835; border: 1px solid #536056; border-radius: 8px; padding: 10px 15px; min-height: 19px; font-weight: 600; }
@@ -56,7 +56,7 @@ QPushButton#dangerButton { color: #edc3ae; border: 1px solid #8a625b; background
 QPushButton#dangerButton:hover { background: #583730; }
 QPushButton#navButton { background: transparent; text-align: left; border: 1px solid transparent; border-radius: 8px; color: #c5cebf; padding: 12px 14px; }
 QPushButton#navButton:hover { background: #293932; border-color: #43584d; }
-QPushButton#navButton:checked { color: #f7e4c1; background: #34443a; border: 1px solid #8d7850; border-left: 3px solid #dfb675; }
+QPushButton#navButton:checked { color: #f7e4c1; background: #3e392e; border: 1px solid #967444; border-left: 3px solid #dfb675; }
 QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QComboBox { background: #101a1b; border: 1px solid #55635b; border-radius: 7px; selection-background-color: #886d4c; selection-color: #ffffff; padding: 8px 10px; color: #f3ebdd; }
 QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus { border: 2px solid #d9b478; }
 QLineEdit::placeholder { color: #8f9f98; }
@@ -71,9 +71,9 @@ QListWidget::item { padding: 9px 12px; }
 QListWidget::item:selected { background: #3b5044; color: #ffedca; }
 QTableWidget { background: #1a2323; alternate-background-color: #202d2a; color: #efe8d8; border: none; gridline-color: #384741; outline: none; selection-background-color: #3c5046; selection-color: #fff2d6; font-size: 11px; }
 QTableWidget::item { padding: 8px 10px; border-bottom: 1px solid #37443e; }
-QTableWidget::item:selected { background: #3b5044; color: #ffedca; }
+QTableWidget::item:selected { background: #655037; color: #ffedca; }
 QHeaderView { background: #25332e; }
-QHeaderView::section { background: #25332e; color: #cbb98f; border: 0; border-bottom: 1px solid #5c614f; padding: 11px 8px; font-weight: 700; font-size: 10px; }
+QHeaderView::section { background: #34332c; color: #cbb98f; border: 0; border-bottom: 1px solid #5c614f; padding: 11px 8px; font-weight: 700; font-size: 10px; }
 QTableCornerButton::section { background: #25332e; border: none; }
 QScrollBar:vertical { width: 11px; background: #1b2523; }
 QScrollBar::handle:vertical { background: #536156; border-radius: 4px; min-height: 28px; }
@@ -85,4 +85,10 @@ QSplitter::handle { background: #101719; width: 10px; }
 QStatusBar { color: #a6b4aa; background: #17201e; border-top: 1px solid #3e4b40; font-size: 10px; }
 QStatusBar::item { border: none; }
 QMessageBox { background: #1a2323; }
+QLabel#artworkBanner { background-color: #171b1c; border: 1px solid #977243; border-radius: 10px; }
+QLabel#brandMark { background-color: transparent; border: none; }
+QDialog QLineEdit, QDialog QComboBox, QDialog QListWidget { border-color: #68583e; }
+QDialog QLineEdit:focus, QDialog QComboBox:focus, QDialog QListWidget:focus { border-color: #e5b56d; }
+QPushButton#primaryButton:focus { border: 2px solid #f2d49a; }
+QFrame#panel QLabel#statName { color: #dfbc82; }
 """

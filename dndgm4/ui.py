@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 )
 
 from . import __version__
+from .artwork import CoverArtLabel, load_artwork, window_icon
 from .models import Creature, KIND_LABELS
 from .storage import CreatureRepository
 from .name_ui import NamePickerDialog
@@ -186,6 +187,7 @@ class MainWindow(QMainWindow):
         self.library = library
         self.active_kind = None
         self.setWindowTitle(f"Dungeons & Dragons Game Manager 4 · {__version__} · The Compendium")
+        self.setWindowIcon(window_icon())
         self.resize(1380, 840)
         self.setMinimumSize(1010, 650)
         central = QWidget()
@@ -219,8 +221,13 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(21, 28, 21, 26)
         layout.setSpacing(16)
         brand = QHBoxLayout()
-        crest = caption("20", "crest")
-        crest.setFixedSize(55, 55)
+        crest = QLabel()
+        crest.setObjectName("brandMark")
+        crest.setFixedSize(61, 61)
+        crest.setPixmap(load_artwork("dragon_crest.png").scaled(
+            61, 61, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
+        crest.setAccessibleName("Dragon and d20 game manager emblem")
         crest.setAlignment(Qt.AlignmentFlag.AlignCenter)
         brand.addWidget(crest)
         titles = QVBoxLayout()
@@ -270,25 +277,17 @@ class MainWindow(QMainWindow):
         layout.addWidget(caption("Your chronicles stay on this computer.", "muted", wrap=True))
 
     def setup_hero(self, root):
-        hero = QFrame()
-        hero.setObjectName("hero")
-        row = QHBoxLayout(hero)
-        row.setContentsMargins(24, 19, 24, 20)
-        intro = QVBoxLayout()
-        intro.setSpacing(6)
-        intro.addWidget(caption("THE GAME MASTER'S DESK / CHARACTER LIBRARY", "eyebrow"))
-        intro.addWidget(caption("The Adventurer's Archive", "pageTitle"))
-        intro.addWidget(caption("A place for legends, villains, and everything in between.", "muted"))
-        row.addLayout(intro, 1)
-        top_actions = QVBoxLayout()
-        open_names = action("Generate Names", self.open_names, "primaryButton")
-        open_names.setAccessibleName("Open standalone Name Genie from home screen")
-        top_actions.addWidget(open_names)
-        tag = caption("THE COMPENDIUM", "tag")
-        top_actions.addWidget(tag)
-        tag.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        row.addLayout(top_actions)
-        root.addWidget(hero)
+        # Artwork includes the title. The former top Generate Names button
+        # is removed: Name Genie remains accessible from sidebar and Ctrl+G.
+        self.hero_banner = CoverArtLabel(
+            "app_banner.jpg", height=166,
+            description="D&D Game Manager 4. Fantasy dragon, d20 and fortress."
+        )
+        root.addWidget(self.hero_banner)
+        root.addWidget(caption(
+            "THE ADVENTURER'S ARCHIVE   ·   CHARACTERS, CREATURES & CHRONICLES",
+            "eyebrow"
+        ))
 
     def setup_metrics(self, root):
         metrics = QHBoxLayout()

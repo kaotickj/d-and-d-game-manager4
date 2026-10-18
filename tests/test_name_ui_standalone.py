@@ -49,7 +49,9 @@ class NameGenieSmokeTests(unittest.TestCase):
             self.assertEqual(window.table.rowCount(), 0)
             buttons = [b for b in window.findChildren(QPushButton)
                        if "Generate Names" in b.text()]
-            self.assertGreaterEqual(len(buttons), 2)
+            # The only Generate Names action is in the sidebar, not the hero.
+            self.assertEqual(len(buttons), 1)
+            self.assertIn("RPG NAME GENIE", buttons[0].text())
             self.assertTrue(all(button.isEnabled() for button in buttons))
             with patch("dndgm4.ui.NamePickerDialog") as picker:
                 window.open_names()

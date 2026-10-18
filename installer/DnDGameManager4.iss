@@ -17,6 +17,7 @@ OutputBaseFilename=DnDGameManager4-Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\dndgm4\assets\app_icon.ico
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible

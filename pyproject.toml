@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "d-and-d-game-manager4"
-version = "0.4.1"
+version = "0.4.2"
 description = "Offline D&D 3.5 character and monster game manager"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -16,3 +16,6 @@ dndgm4 = "dndgm4.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["dndgm4*"]
+
+[tool.setuptools.package-data]
+dndgm4 = ["assets/*.jpg", "assets/*.png", "assets/*.ico"]

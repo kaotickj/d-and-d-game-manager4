@@ -6,6 +6,7 @@ dialog only returns a selected name. It never writes to the source database.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
+from .artwork import load_artwork, window_icon
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QDialog, QHBoxLayout, QLabel, QListWidget,
     QMessageBox, QPushButton, QVBoxLayout,
@@ -22,8 +23,9 @@ class NamePickerDialog(QDialog):
                  standalone: bool = False):
         super().__init__(parent)
         self.setWindowTitle("RPG Name Genie | D&D Game Manager 4")
-        self.resize(610, 610)
-        self.setMinimumSize(520, 460)
+        self.setWindowIcon(window_icon())
+        self.resize(730, 770)
+        self.setMinimumSize(590, 540)
         self.engine = engine or NameEngine()
         self.selected_name: str | None = None
         self.is_monster = monster
@@ -32,20 +34,35 @@ class NamePickerDialog(QDialog):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(22, 20, 22, 20)
         outer.setSpacing(12)
+        header = QHBoxLayout()
+        header.setSpacing(18)
+        self.name_genie_art = QLabel()
+        self.name_genie_art.setObjectName("brandMark")
+        self.name_genie_art.setFixedSize(124, 124)
+        self.name_genie_art.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.name_genie_art.setPixmap(load_artwork("name_genie_crest.png").scaled(
+            124, 124, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        ))
+        self.name_genie_art.setAccessibleName("RPG Name Genie ornate quill, parchment and d20 crest")
+        header.addWidget(self.name_genie_art)
+        header_text = QVBoxLayout()
+        header_text.setSpacing(8)
         eyebrow = QLabel("THE GAME MASTER'S DESK / RPG NAME GENIE")
         eyebrow.setObjectName("eyebrow")
-        outer.addWidget(eyebrow)
+        header_text.addWidget(eyebrow)
         title = QLabel("The Naming Chamber")
         title.setObjectName("pageTitle")
-        outer.addWidget(title)
+        header_text.addWidget(title)
         intro = QLabel(
-            "Choose a D&D 3.5 race or creature, then refine its naming style. "
-            "Names use the curated RPG Name Genie 2.4 approach; related "
-            "creatures share coherent linguistic families."
+            "Generate fitting D&D 3.5 character and monster names with "
+            "curated naming traditions shared across related creature families."
         )
         intro.setObjectName("muted")
         intro.setWordWrap(True)
-        outer.addWidget(intro)
+        header_text.addWidget(intro)
+        header.addLayout(header_text, 1)
+        outer.addLayout(header)
 
         outer.addWidget(QLabel("Race / Creature"))
         self.race = QComboBox()
