@@ -188,9 +188,13 @@ class NamePickerDialog(QDialog):
             self.list_widget.setCurrentRow(0)
 
     def ai_names(self):
+        try:
+            family = family_for(self.race.currentText())
+        except UnsupportedCreature:
+            family = "Custom / unspecified"
         context = (
             f"Race or creature: {self.race.currentText()}, naming family: "
-            f"{family_for(self.race.currentText())}, gender: {self.gender.currentText()}, "
+            f"{family}, gender: {self.gender.currentText()}, "
             f"class: {self.character_class.currentText()}, "
             f"culture: {self.culture.currentText()}, tone: {self.tone.currentText()}. "
             "Return 8 original names."
