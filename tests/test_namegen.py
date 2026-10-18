@@ -46,6 +46,15 @@ class NamingRulesTests(unittest.TestCase):
         for name in one:
             self.assertNotIn("(", name)
 
+    def test_gendered_curated_bank_preserves_style(self):
+        from dndgm4.namegen import GENDER_BANKS
+        for family in GENDER_BANKS:
+            engine = NameEngine("/nonexistent/v24.sqlite", random.Random(41))
+            masculine = engine.generate(family, gender="Masculine", count=5, surname=False)
+            self.assertTrue(set(masculine) <= set(GENDER_BANKS[family]["Masculine"].split()))
+            neutral = engine.generate(family, gender="Nonbinary", count=5, surname=False)
+            self.assertTrue(set(neutral) <= set(GENDER_BANKS[family]["Neutral"].split()))
+
     def test_no_nonsense_for_unrecognised_race(self):
         with self.assertRaises(UnsupportedCreature):
             family_for("unknown specimen 123")
