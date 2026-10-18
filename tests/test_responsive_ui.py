@@ -31,6 +31,52 @@ class ResponsiveLayoutTests(unittest.TestCase):
                 self.assertEqual(rendered.size(), banner.size())
         banner.close()
 
+    def test_six_ability_tiles_stay_square_and_legible_when_resized(self):
+        from PyQt6.QtWidgets import QFrame, QLabel
+        from PyQt6.QtCore import Qt
+        from dndgm4.models import Creature
+        from dndgm4.storage import CreatureRepository
+        from dndgm4.ui import MainWindow
+        with TemporaryDirectory() as folder:
+            library = CreatureRepository(Path(folder) / "scores.sqlite3")
+            record = library.save(Creature(
+                name="Square Score Test", kind="pc",
+                strength=18, dexterity=16, constitution=14,
+                intelligence=12, wisdom=10, charisma=8,
+            ))
+            window = MainWindow(library)
+            for width, height in ((895, 640), (1200, 780), (1490, 920),
+                                  (800, 540)):
+                with self.subTest(width=width, height=height):
+                    window.resize(width, height)
+                    window.show()
+                    self.app.processEvents()
+                    for row in range(window.table.rowCount()):
+                        if (window.table.item(row, 0).data(
+                                Qt.ItemDataRole.UserRole
+                            ) == record.id):
+                            window.table.selectRow(row)
+                            break
+                    self.app.processEvents()
+                    tiles = window.findChildren(QFrame, "statChip")
+                    self.assertEqual(len(tiles), 6)
+                    for tile in tiles:
+                        self.assertEqual(tile.width(), tile.height())
+                        self.assertEqual(tile.size().width(), 76)
+                        captions = tile.findChildren(QLabel)
+                        self.assertEqual(len(captions), 2)
+                        for label in captions:
+                            self.assertGreater(label.height(), 0)
+                            self.assertGreaterEqual(label.y(), 0)
+                            self.assertLessEqual(label.y() + label.height(), tile.height())
+                    self.assertEqual(window.hero_banner.height(), 166)
+            self.assertEqual(
+                {k: v.text() for k, v in window.stat_values.items()},
+                {"strength": "18", "dexterity": "16", "constitution": "14",
+                 "intelligence": "12", "wisdom": "10", "charisma": "8"},
+            )
+            window.close()
+
     def test_preview_stacks_without_changing_original_dashboard_art(self):
         from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QScrollArea, QPushButton

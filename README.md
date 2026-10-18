@@ -118,3 +118,11 @@ splitter so all six ability scores remain visible. At narrow widths the record
 preview moves below the table and both can scroll; at regular widths the
 classic side-by-side library preview remains. No D&D mechanics or database
 changes are part of this release.
+
+## v0.5.3: Fixed square ability-score tiles
+
+The six preview tiles (STR, DEX, CON, INT, WIS, CHA) now always occupy
+76×76-pixel squares, centered in the existing three-column grid. They no
+longer flatten vertically when the application is unmaximized or the
+records/preview splitter changes orientation. The original 166px main
+illustration, fonts, window geometry and other layout elements are unchanged.
