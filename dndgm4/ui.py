@@ -189,8 +189,11 @@ class MainWindow(QMainWindow):
         self.active_kind = None
         self.setWindowTitle(f"Dungeons & Dragons Game Manager 4 · {__version__} · The Compendium")
         self.setWindowIcon(window_icon())
-        self.resize(1380, 840)
-        self.setMinimumSize(1010, 650)
+        self.resize(1200, 780)
+        # Smaller laptops and windowed use must remain supported.
+        self.setMinimumSize(800, 540)
+        self._compact_banner = False
+        self._splitter_layout = None
         central = QWidget()
         self.setCentralWidget(central)
         shell = QHBoxLayout(central)
@@ -199,13 +202,24 @@ class MainWindow(QMainWindow):
         self.setup_sidebar(shell)
         workspace = QWidget()
         body = QVBoxLayout(workspace)
-        body.setContentsMargins(27, 25, 27, 20)
-        body.setSpacing(15)
-        shell.addWidget(workspace, 1)
+        body.setContentsMargins(17, 14, 17, 14)
+        body.setSpacing(9)
+        # The main workspace scrolls at laptop resolutions instead of forcing
+        # a huge minimum window or hiding controls beyond the bottom edge.
+        self.workspace_scroll = QScrollArea()
+        self.workspace_scroll.setObjectName("workspaceScroll")
+        self.workspace_scroll.setWidgetResizable(True)
+        self.workspace_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.workspace_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.workspace_scroll.setWidget(workspace)
+        shell.addWidget(self.workspace_scroll, 1)
         self.setup_hero(body)
         self.setup_metrics(body)
         self.setup_filters(body)
         self.setup_library(body)
+        self._update_responsive_layout()
         self.statusBar().showMessage("Local library · " + str(self.library.path))
         QShortcut(QKeySequence("Ctrl+F"), self, activated=self.search.setFocus)
         QShortcut(QKeySequence("Ctrl+N"), self, activated=lambda: self.create("pc"))
@@ -217,11 +231,17 @@ class MainWindow(QMainWindow):
     def setup_sidebar(self, shell):
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(246)
-        shell.addWidget(sidebar)
+        sidebar_scroll = QScrollArea()
+        sidebar_scroll.setObjectName("sidebarScroll")
+        sidebar_scroll.setFixedWidth(244)
+        sidebar_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        sidebar_scroll.setWidgetResizable(True)
+        sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        sidebar_scroll.setWidget(sidebar)
+        shell.addWidget(sidebar_scroll)
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(21, 28, 21, 26)
-        layout.setSpacing(16)
+        layout.setContentsMargins(16, 16, 16, 14)
+        layout.setSpacing(9)
         brand = QHBoxLayout()
         crest = QLabel()
         crest.setObjectName("brandMark")
@@ -285,14 +305,22 @@ class MainWindow(QMainWindow):
         # Artwork includes the title. The former top Generate Names button
         # is removed: Name Genie remains accessible from sidebar and Ctrl+G.
         self.hero_banner = CoverArtLabel(
-            "app_banner.jpg", height=166,
-            description="D&D Game Manager 4. Fantasy dragon, d20 and fortress."
+            "app_banner.jpg", height=150,
+            description="Complete D&D Game Manager 4 banner, dragon, dice and fortress."
         )
         root.addWidget(self.hero_banner)
-        root.addWidget(caption(
+        banner_controls = QHBoxLayout()
+        banner_controls.setSpacing(10)
+        banner_controls.addWidget(caption(
             "THE ADVENTURER'S ARCHIVE   ·   CHARACTERS, CREATURES & CHRONICLES",
             "eyebrow"
-        ))
+        ), 1)
+        self.full_art_button = action("View full artwork", self.view_full_artwork, "subtleButton")
+        self.full_art_button.setAccessibleName("View the entire original banner at a larger size")
+        banner_controls.addWidget(self.full_art_button)
+        self.collapse_art_button = action("Hide banner", self.toggle_banner, "subtleButton")
+        banner_controls.addWidget(self.collapse_art_button)
+        root.addLayout(banner_controls)
 
     def setup_metrics(self, root):
         metrics = QHBoxLayout()
@@ -303,7 +331,7 @@ class MainWindow(QMainWindow):
             frame = QFrame()
             frame.setObjectName("metric")
             col = QVBoxLayout(frame)
-            col.setContentsMargins(17, 12, 17, 12)
+            col.setContentsMargins(11, 7, 11, 7)
             col.setSpacing(1)
             col.addWidget(caption(title, "metricLabel"))
             count = caption("0", "metricValue")
@@ -329,10 +357,13 @@ class MainWindow(QMainWindow):
     def setup_library(self, root):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
+        splitter.setObjectName("librarySplitter")
+        self.library_splitter = splitter
+        splitter.setMinimumHeight(385)
         root.addWidget(splitter, 1)
         records_panel = QFrame()
         records_panel.setObjectName("panel")
-        records_panel.setMinimumWidth(490)
+        records_panel.setMinimumWidth(0)
         pane = QVBoxLayout(records_panel)
         pane.setContentsMargins(17, 18, 17, 15)
         pane.setSpacing(12)
@@ -369,7 +400,7 @@ class MainWindow(QMainWindow):
 
         preview = QFrame()
         preview.setObjectName("panel")
-        preview.setMinimumWidth(280)
+        preview.setMinimumWidth(0)
         details = QVBoxLayout(preview)
         details.setContentsMargins(20, 18, 20, 16)
         details.setSpacing(12)
@@ -418,6 +449,60 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
         splitter.setSizes([720, 335])
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_responsive_layout()
+
+    def _update_responsive_layout(self):
+        if not hasattr(self, "library_splitter"):
+            return
+        # A two-column preview is best on desktops; on compact windows the
+        # preview goes *below* the table and the workspace becomes scrollable.
+        orientation = ("stacked" if self.width() < 1130 else "columns")
+        if orientation == self._splitter_layout:
+            return
+        self._splitter_layout = orientation
+        if orientation == "stacked":
+            self.library_splitter.setOrientation(Qt.Orientation.Vertical)
+            self.library_splitter.setMinimumHeight(680)
+            self.library_splitter.setSizes([365, 315])
+        else:
+            self.library_splitter.setOrientation(Qt.Orientation.Horizontal)
+            self.library_splitter.setMinimumHeight(385)
+            self.library_splitter.setSizes([680, 330])
+
+    def toggle_banner(self):
+        self._compact_banner = not self._compact_banner
+        self.hero_banner.setVisible(not self._compact_banner)
+        self.collapse_art_button.setText(
+            "Show banner" if self._compact_banner else "Hide banner"
+        )
+
+    def view_full_artwork(self):
+        from PyQt6.QtWidgets import QApplication
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Full Artwork | D&D Game Manager 4")
+        dialog.setWindowIcon(window_icon())
+        screen = QApplication.primaryScreen()
+        bounds = screen.availableGeometry() if screen else None
+        width = min(1160, bounds.width() - 80) if bounds else 1060
+        height = min(560, bounds.height() - 80) if bounds else 480
+        dialog.resize(max(550, width), max(350, height))
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(15, 14, 15, 14)
+        layout.addWidget(caption(
+            "D&D GAME MANAGER 4  ·  THE COMPENDIUM", "sectionTitle"
+        ))
+        artwork = CoverArtLabel(
+            "app_banner.jpg",
+            height=max(170, min(int((dialog.width() - 40) / 3), 410)),
+            description="Full uncropped Compendium fantasy banner",
+        )
+        layout.addWidget(artwork)
+        layout.addStretch(1)
+        layout.addWidget(action("Close", dialog.accept))
+        dialog.exec()
 
     def change_section(self, kind):
         self.active_kind = kind
