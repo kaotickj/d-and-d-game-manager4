@@ -21,6 +21,7 @@ class ResponsiveLayoutTests(unittest.TestCase):
         self.assertFalse(banner.source.isNull())
         for width,height in ((470,150),(850,170),(1600,200),(2100,238)):
             with self.subTest(width=width):
+                banner.setFixedHeight(height)
                 banner.resize(width,height)
                 self.app.processEvents()
                 banner.update_picture()
