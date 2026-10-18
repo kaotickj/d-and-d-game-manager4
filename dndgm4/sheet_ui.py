@@ -84,6 +84,7 @@ class SheetOptions(QWidget):
         self.custom_skills = QLineEdit()
         self.custom_skills.setPlaceholderText("For homebrew: comma-separated class skills")
         form.addRow("Additional class skills", self.custom_skills)
+        self.custom_skills.textChanged.connect(self.refresh_skill_types)
         self.template_status = QLabel()
         self.template_status.setObjectName("muted")
         self.template_status.setWordWrap(True)
@@ -200,17 +201,21 @@ class SheetOptions(QWidget):
              "must be reviewed by the DM." if t.supplement or custom else
              "Core 3.5 class starter. Suggested feats, skills, gear can all be edited.")
         )
-        allowed=t.class_skill_set|frozenset(lines(self.custom_skills.text()))
-        for row,name in enumerate(SKILLS):
-            in_class=name in allowed
-            self.skill_table.item(row,1).setText("Class" if in_class else "Cross-class")
-            field=self.skill_fields[name]
+        self.refresh_skill_types()
+        self.apply_preset()
+        self.update_budget()
+
+    def refresh_skill_types(self, *args):
+        t = self.spec()
+        allowed = t.class_skill_set | frozenset(lines(self.custom_skills.text()))
+        for row, name in enumerate(SKILLS):
+            in_class = name in allowed
+            self.skill_table.item(row, 1).setText("Class" if in_class else "Cross-class")
+            field = self.skill_fields[name]
             field.setMaximum(4.0 if in_class else 2.0)
             field.setSingleStep(1.0 if in_class else .5)
-            # Avoid invalid half-ranks for class skills after class change.
             if in_class and field.value() % 1:
                 field.setValue(int(field.value()))
-        self.apply_preset()
         self.update_budget()
 
     def apply_preset(self,*args):
