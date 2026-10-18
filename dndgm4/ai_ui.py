@@ -102,7 +102,7 @@ class AIWritingDialog(QDialog):
         copy.clicked.connect(self.copy_text)
         actions.addWidget(copy)
         actions.addStretch()
-        self.use=QPushButton("Use Draft" if kind=="bio" else "Close")
+        self.use=QPushButton("Use Draft" if kind in ("bio","names") else "Close")
         self.use.clicked.connect(self.accept_draft)
         actions.addWidget(self.use)
         layout.addLayout(actions)
@@ -133,7 +133,7 @@ class AIWritingDialog(QDialog):
         self.status.setText("Draft copied to clipboard.")
 
     def accept_draft(self):
-        if self.kind=="bio" and not self.result.toPlainText().strip():
+        if self.kind in ("bio","names") and not self.result.toPlainText().strip():
             QMessageBox.information(self,"Nothing to use","Write or generate a draft first.")
             return
         self.generated_text=self.result.toPlainText()
