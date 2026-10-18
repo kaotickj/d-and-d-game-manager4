@@ -228,32 +228,46 @@ def default_v24_path() -> Path:
     return base / "NameGenie" / "namegenie_v24.sqlite3"
 
 
-def read_v24_bank(path: Path, species: str, role: str, gender: str = "Unspecified"
-                  ) -> list[str]:
-    """Fetch originals with readonly SQLite; reject malformed/other schemas."""
+def read_v24_bank(path: Path, species: str, role: str, gender: str = "Unspecified",
+                  *, character_class: str = "", culture: str = "",
+                  tone: str = "") -> list[str]:
+    """Read the original 2.4 tags without altering or creating the database.
+
+    A missing facet tag is neutral. A conflicting explicit tag disqualifies
+    the entry, matching the 2.4 Store.search classification behavior.
+    """
     if not path.is_file():
         return []
-    # SQLite URI mode=ro prevents creating or changing an original database.
     from urllib.parse import quote
     uri = "file:" + quote(str(path.resolve()).replace("\\", "/"), safe="/:") + "?mode=ro"
     db = sqlite3.connect(uri, uri=True)
     try:
-        found = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        found = {row[0] for row in db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )}
         if not {"entries", "tags"} <= found:
             return []
-        rows = db.execute(
-            """SELECT DISTINCT e.name FROM entries e
-            WHERE e.role = ?
-              AND EXISTS (SELECT 1 FROM tags t WHERE t.entry_id=e.id
-                          AND t.facet='Genre' AND t.value='Fantasy')
-              AND EXISTS (SELECT 1 FROM tags t WHERE t.entry_id=e.id
-                          AND t.facet='Species' AND t.value=?)
-              AND NOT EXISTS (SELECT 1 FROM tags t WHERE t.entry_id=e.id
-                          AND t.facet='Gender' AND t.value <> ?)
-            ORDER BY e.name""",
-            (role, species, gender),
-        ).fetchall()
-        return [r[0] for r in rows if r[0].strip()]
+        sql = """SELECT DISTINCT e.name FROM entries e
+                 WHERE e.role = ?
+                 AND EXISTS (SELECT 1 FROM tags t WHERE t.entry_id=e.id
+                             AND t.facet='Genre' AND t.value='Fantasy')
+                 AND EXISTS (SELECT 1 FROM tags t WHERE t.entry_id=e.id
+                             AND t.facet='Species' AND t.value=?)"""
+        params: list[str] = [role, species]
+        for facet, value in (
+            ("Gender", ("Neutral" if gender == "Nonbinary" else gender)
+             if gender != "Unspecified" else ""),
+            ("Class", character_class),
+            ("Culture", culture),
+            ("Tone", tone),
+        ):
+            if value:
+                sql += """ AND NOT EXISTS (
+                           SELECT 1 FROM tags t WHERE t.entry_id=e.id
+                             AND t.facet=? AND t.value<>?)"""
+                params.extend((facet, value))
+        rows = db.execute(sql + " ORDER BY e.name", params).fetchall()
+        return [row[0] for row in rows if row[0].strip()]
     finally:
         db.close()
 
@@ -266,7 +280,9 @@ class NameEngine:
         self.db_path = Path(namegen_v24_db) if namegen_v24_db else default_v24_path()
         self.rng = rng if rng is not None else random.SystemRandom()
 
-    def _bank(self, family: str, role: str, gender: str) -> list[str]:
+    def _bank(self, family: str, role: str, gender: str,
+              character_class: str = "", culture: str = "",
+              tone: str = "") -> list[str]:
         bank = BANKS[family].get(role, "")
         if role == "Given" and gender != "Unspecified":
             gender_key = "Neutral" if gender == "Nonbinary" else gender
@@ -275,7 +291,10 @@ class NameEngine:
         source = V24_SPECIES.get(family)
         if source:
             try:
-                from_original = read_v24_bank(self.db_path, source, role, gender)
+                from_original = read_v24_bank(
+                    self.db_path, source, role, gender,
+                    character_class=character_class, culture=culture, tone=tone
+                )
                 # v2.4 curated names take precedence; builtin names fill coverage.
                 if from_original:
                     return list(dict.fromkeys(from_original + names))
@@ -285,7 +304,8 @@ class NameEngine:
 
     def generate(self, race: str, *, gender: str = "Unspecified",
                  monster: bool = False, count: int = 8,
-                 surname: bool | None = None) -> list[str]:
+                 surname: bool | None = None, character_class: str = "",
+                 culture: str = "", tone: str = "") -> list[str]:
         if gender not in GENDERS:
             raise ValueError("Unsupported gender preference.")
         if not 1 <= count <= 100:
@@ -294,12 +314,13 @@ class NameEngine:
         # Default formatting: named humanoids normally have family names;
         # monsters prefer individual names/epithets, not human surnames.
         use_family = (not monster) if surname is None else surname
-        given = self._bank(family, "Given", gender)
+        filters = (character_class, culture, tone)
+        given = self._bank(family, "Given", gender, *filters)
         if not given:
             raise UnsupportedCreature(f"No given names in {family!r}.")
-        family_bank = (self._bank(family, "Clan", gender) if family == "Dwarf"
-                       else self._bank(family, "Family", gender))
-        family_bank = family_bank or self._bank(family, "Family", gender)
+        family_bank = (self._bank(family, "Clan", gender, *filters) if family == "Dwarf"
+                       else self._bank(family, "Family", gender, *filters))
+        family_bank = family_bank or self._bank(family, "Family", gender, *filters)
         output = []
         seen = set()
         attempts = 0
