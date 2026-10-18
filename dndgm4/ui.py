@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from . import __version__
 from .models import Creature, KIND_LABELS
 from .storage import CreatureRepository
 from .name_ui import NamePickerDialog
@@ -184,7 +185,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.library = library
         self.active_kind = None
-        self.setWindowTitle("Dungeons & Dragons Game Manager 4 · The Compendium")
+        self.setWindowTitle(f"Dungeons & Dragons Game Manager 4 · {__version__} · The Compendium")
         self.resize(1380, 840)
         self.setMinimumSize(1010, 650)
         central = QWidget()
@@ -265,7 +266,7 @@ class MainWindow(QMainWindow):
             layout.addWidget(control)
         layout.addStretch()
         layout.addWidget(rule())
-        layout.addWidget(caption("D&D 3.5  ·  OFFLINE", "eyebrow"))
+        layout.addWidget(caption(f"D&D 3.5  ·  v{__version__}  ·  OFFLINE", "eyebrow"))
         layout.addWidget(caption("Your chronicles stay on this computer.", "muted", wrap=True))
 
     def setup_hero(self, root):
