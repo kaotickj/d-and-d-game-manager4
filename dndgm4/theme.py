@@ -54,6 +54,10 @@ QPushButton#primaryButton:hover { background: #c79c60; }
 QPushButton#primaryButton:disabled { background: #685a42; color: #a69a82; border-color: #6d614c; }
 QPushButton#dangerButton { color: #edc3ae; border: 1px solid #8a625b; background: #372925; }
 QPushButton#dangerButton:hover { background: #583730; }
+QPushButton#subtleButton { color: #bfa678; background: transparent; border: 1px solid transparent; border-radius: 5px; padding: 3px 7px; min-height: 14px; font-size: 10px; }
+QPushButton#subtleButton:hover { color: #f4ddb5; background: #34352f; border-color: #826941; }
+QScrollArea#sidebarScroll { background: #191c1d; border-right: 1px solid #68543b; }
+QScrollArea#workspaceScroll { background: #101719; border: none; }
 QPushButton#navButton { background: transparent; text-align: left; border: 1px solid transparent; border-radius: 8px; color: #c5cebf; padding: 12px 14px; }
 QPushButton#navButton:hover { background: #293932; border-color: #43584d; }
 QPushButton#navButton:checked { color: #f7e4c1; background: #3e392e; border: 1px solid #967444; border-left: 3px solid #dfb675; }
