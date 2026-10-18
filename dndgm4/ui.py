@@ -313,8 +313,8 @@ class MainWindow(QMainWindow):
         banner_controls = QHBoxLayout()
         banner_controls.setSpacing(10)
         banner_controls.addWidget(caption(
-            "THE ADVENTURER'S ARCHIVE   ·   CHARACTERS, CREATURES & CHRONICLES",
-            "eyebrow"
+            "THE COMPENDIUM  ·  CHARACTERS & CREATURES",
+            "eyebrow", wrap=True
         ), 1)
         self.full_art_button = action("View full artwork", self.view_full_artwork, "subtleButton")
         self.full_art_button.setAccessibleName("View the entire original banner at a larger size")
@@ -458,6 +458,12 @@ class MainWindow(QMainWindow):
     def _update_responsive_layout(self):
         if not hasattr(self, "library_splitter"):
             return
+        # At large window sizes scale the artwork up modestly, instead of
+        # leaving a miniature banner floating in a widescreen header.
+        content_width = max(500, self.workspace_scroll.viewport().width())
+        banner_height = min(238, max(142, content_width // 5))
+        if self.hero_banner.height() != banner_height:
+            self.hero_banner.setFixedHeight(banner_height)
         # A two-column preview is best on desktops; on compact windows the
         # preview goes *below* the table and the workspace becomes scrollable.
         orientation = ("stacked" if self.width() < 1130 else "columns")
