@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 
 from .models import Creature, KIND_LABELS
 from .storage import CreatureRepository
+from .name_ui import NamePickerDialog
 from .roll_ui import CharacterCreatorDialog, DiceDialog
 
 
@@ -74,7 +75,13 @@ class CreatureEditor(QDialog):
         self.name.setMaxLength(200)
         self.name.setPlaceholderText("e.g. Elara Nightwind")
         self.name.setAccessibleName("Record name, required")
-        form.addRow("Name *", self.name)
+        name_controls = QHBoxLayout()
+        name_controls.addWidget(self.name, 1)
+        name_generate = QPushButton("Generate Name")
+        name_generate.setToolTip("RPG Name Genie 2.4 naming traditions, including expanded D&D creatures")
+        name_generate.clicked.connect(self.suggest_name)
+        name_controls.addWidget(name_generate)
+        form.addRow("Name *", name_controls)
         self.race_type = QLineEdit(creature.race_type)
         form.addRow("Race / Creature Type", self.race_type)
         self.character_class = QLineEdit(creature.character_class)
@@ -133,6 +140,15 @@ class CreatureEditor(QDialog):
         save_button.setDefault(True)
         footer.addWidget(save_button)
         layout.addLayout(footer)
+
+    def suggest_name(self):
+        creature_type = self.race_type.text().strip()
+        picker = NamePickerDialog(race=creature_type or ("Goblin" if self.original.kind == "monster" else "Human"),
+                                  monster=self.original.kind == "monster", parent=self)
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.selected_name:
+            self.name.setText(picker.selected_name)
+            if not self.race_type.text().strip():
+                self.race_type.setText(picker.race.currentText())
 
     @staticmethod
     def spin(value, minimum, maximum):

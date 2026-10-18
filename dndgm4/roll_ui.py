@@ -12,6 +12,7 @@ from .creation import (ABILITIES, CORE_CLASSES, RACIAL_ADJUSTMENTS,
                        CreationSession, adjusted_scores, build_character,
                        first_level_hp, first_level_skill_points)
 from .dice import ability_modifier, percentile_answer, roll_dice, roll_expression
+from .name_ui import NamePickerDialog
 
 
 def text_label(value: str, role: str = "", *, wrap: bool = False) -> QLabel:
@@ -170,7 +171,12 @@ class CharacterCreatorDialog(QDialog):
         self.name.setMaxLength(200)
         self.name.setPlaceholderText("Name of the adventurer")
         self.name.setAccessibleName("Character name")
-        id_form.addRow("Character Name *", self.name)
+        name_row = QHBoxLayout()
+        name_row.addWidget(self.name, 1)
+        name_button = QPushButton("Generate Name")
+        name_button.clicked.connect(self.suggest_name)
+        name_row.addWidget(name_button)
+        id_form.addRow("Character Name *", name_row)
         self.race = QComboBox()
         self.race.addItems(RACIAL_ADJUSTMENTS.keys())
         self.race.setAccessibleName("Player race")
@@ -261,6 +267,16 @@ class CharacterCreatorDialog(QDialog):
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
         self.change_method()
+
+    def suggest_name(self):
+        picker = NamePickerDialog(race=self.race.currentText(), monster=False, parent=self)
+        if picker.exec() == QDialog.DialogCode.Accepted and picker.selected_name:
+            self.name.setText(picker.selected_name)
+            if picker.race.currentText() in RACIAL_ADJUSTMENTS:
+                self.race.setCurrentText(picker.race.currentText())
+            else:
+                self.message.setText("Name applied. Expanded-race mechanics are not yet implemented; "
+                                     "the character retains its selected core race.")
 
     def change_method(self, *args):
         method = self.method.currentData()
