@@ -33,6 +33,7 @@ MONSTER_RACES = (
     "Orc", "Rakshasa", "Sahuagin", "Skeleton", "Skullcrusher Ogre",
     "Specter", "Ssvaklor", "Troll", "Troglodyte", "Vampire",
     "Warforged", "Wight", "Wraith", "Yuan-ti", "Zombie",
+    "Lizardkin", "Reptilian", "Dragonkin", "Orckin", "Ogrekin", "Goblinoid",
 )
 ALL_KINDS = tuple(dict.fromkeys(CORE_RACES + EXPANDED_RACES + MONSTER_RACES))
 GENDERS = ("Unspecified", "Masculine", "Feminine", "Neutral", "Nonbinary")
@@ -45,13 +46,17 @@ FAMILY_ALIASES = {
     "aquatic elf": "Elf", "dryad": "Elf", "fey": "Elf",
     "dwarf": "Dwarf", "duergar": "Dwarf", "goliath": "Giantkin",
     "half-giant": "Giantkin", "giant": "Giantkin", "ettin": "Giantkin",
-    "ogre": "Giantkin", "ogre mage": "Giantkin",
+    "ogre": "Giantkin", "ogrekin": "Giantkin",
+    "ogre mage": "Giantkin",
     "skullcrusher ogre": "Giantkin", "troll": "Giantkin",
     "gnome": "Gnome", "deep gnome": "Gnome", "chaos gnome": "Gnome",
     "whisper gnome": "Gnome", "halfling": "Halfling",
-    "orc": "Orc", "half-orc": "Orc", "flind": "Orc",
+    "orc": "Orc", "orckin": "Orc", "orc-kin": "Orc",
+    "half-orc": "Orc", "flind": "Orc",
     "gnoll": "Orc", "bugbear": "Goblinoid", "goblin": "Goblinoid",
-    "hobgoblin": "Goblinoid", "kobold": "Draconic",
+    "hobgoblin": "Goblinoid", "goblinoid": "Goblinoid",
+    "lizardkin": "Draconic", "reptilian": "Draconic",
+    "dragonkin": "Draconic", "kobold": "Draconic",
     "dragon": "Draconic", "dragonborn": "Draconic",
     "draconian": "Draconic", "dracotaur": "Draconic",
     "lizardfolk": "Draconic", "troglodyte": "Draconic",
@@ -106,7 +111,7 @@ BANKS = {
     },
     "Orc": {
         "Given": "Gorak Thurog Makhar Urgoth Brogar Kargun Drokh Grasha Mogha Urzha Korga Draga Shurka Rukh Thrak Ghor Vash Zog",
-        "Family": "Bonecleaver Ashfang Bloodtusk Ironscar Grimjaw Doom tusk".replace("Doom tusk", "Doomtusk"),
+        "Family": "Bonecleaver Ashfang Bloodtusk Ironscar Grimjaw Doomtusk",
     },
     "Draconic": {
         "Given": "Arjhan Balasar Rhogar Medrash Kriv Akra Nala Torinn Bharash Ghesh Surina Varan",
