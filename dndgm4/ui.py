@@ -664,11 +664,30 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def open_narrator(self):
+        """Show Scribe independently of the main compendium window.
+
+        Keeping a strong reference and using show() (not a nested exec()
+        event loop) prevents dialog shutdown from closing the main app.
+        """
+        existing = getattr(self, "_narrator_dialog", None)
+        if existing is not None:
+            # Reuse even a previously closed dialog. Qt can be in the middle
+            # of dispatching its finished/close event; never drop the final
+            # reference from that callback.
+            existing.show()
+            existing.raise_()
+            existing.activateWindow()
+            return
         record = self.selected()
         context = (f"Scene features {record.name}, a {record.race_type} {record.character_class}. "
                    f"Notes: {record.notes[:900]}" if record else "")
         writer = AIWritingDialog("dm", context, self)
-        writer.exec()
+        writer.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
+        writer.setWindowModality(Qt.WindowModality.NonModal)
+        self._narrator_dialog = writer
+        # Keep a strong reference until MainWindow is itself destroyed.
+        # Do not dereference the child from its own 'finished' signal.
+        writer.show()
 
     def open_dice(self):
         dialog = DiceDialog(self)
