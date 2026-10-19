@@ -219,6 +219,9 @@ class CharacterCreatorDialog(QDialog):
                                     "Large","Huge","Gargantuan","Colossal"))
             self.npc_size.currentTextChanged.connect(self.update_totals)
             id_form.addRow("NPC Size", self.npc_size)
+            self.npc_cr = QLineEdit()
+            self.npc_cr.setPlaceholderText("DM-entered challenge rating, e.g. 1/2")
+            id_form.addRow("Challenge Rating",self.npc_cr)
             modifications = QHBoxLayout()
             for attribute in ABILITIES:
                 column = QVBoxLayout()
@@ -297,6 +300,12 @@ class CharacterCreatorDialog(QDialog):
         body.addWidget(stats)
 
         self.options = SheetOptions(self.character_class, self.race, self.final_scores)
+        # Suggested skill ranks need refresh after racial INT or class changes.
+        # Manual/blank builds are preserved without resetting user decisions.
+        self.race.currentTextChanged.connect(self.refresh_recommendations)
+        if self.kind == "npc":
+            for modifier in self.npc_mods.values():
+                modifier.valueChanged.connect(self.refresh_recommendations)
         body.addWidget(self.options)
 
         info = QFrame()
@@ -329,6 +338,10 @@ class CharacterCreatorDialog(QDialog):
         self.change_method()
         if self.original is not None:
             self.load_character(self.original)
+
+    def refresh_recommendations(self, *args):
+        if hasattr(self, "options") and self.options.build_mode.currentIndex()==0:
+            self.options.apply_preset()
 
     def npc_race_changed(self, *args):
         if self.kind != "npc" or not self.npc_mods:
@@ -374,6 +387,7 @@ class CharacterCreatorDialog(QDialog):
         self.method.setCurrentIndex(2)
         race_sheet = json.loads(creature.sheet_json) if creature.sheet_json else {}
         if self.kind == "npc":
+            self.npc_cr.setText(creature.challenge_rating)
             meta = race_sheet.get("npc_ancestry", {})
             for attr, control in self.npc_mods.items():
                 control.setValue(meta.get("modifiers",{}).get(
@@ -521,6 +535,8 @@ class CharacterCreatorDialog(QDialog):
             if self.kind == "npc":
                 metadata=json.loads(created.sheet_json)
                 profile=NPC_RACES.get(self.race.currentText())
+                from .monster_rules import valid_cr
+                created=replace(created,challenge_rating=valid_cr(self.npc_cr.text()))
                 metadata["npc_ancestry"] = {
                     "race":self.race.currentText(),
                     "modifiers":self.racial_modifiers(),
