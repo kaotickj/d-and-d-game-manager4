@@ -17,6 +17,7 @@ import json
 from .creation import ABILITIES
 from .dice import ability_modifier
 from .models import Creature
+from .identity_rules import identity_text
 
 SIZES = ("Fine","Diminutive","Tiny","Small","Medium",
          "Large","Huge","Gargantuan","Colossal")
@@ -100,6 +101,8 @@ class MonsterBlueprint:
     level_adjustment: str = ""
     notes: str = ""
     biography: str = ""
+    gender: str = ""
+    age: str = ""
     hp_method: str = "average"
     manual_hit_points: int = 1
 
@@ -122,6 +125,8 @@ def _modifier(value:int|None)->int:
     return ability_modifier(value) if value is not None else 0
 
 def compute_monster(b:MonsterBlueprint, *, roller=None)->dict:
+    identity_text(b.gender, "Gender")
+    identity_text(b.age, "Age")
     if not b.name.strip() or len(b.name.strip())>200:
         raise ValueError("A monster name (max 200 characters) is required.")
     if not b.species.strip():
@@ -215,6 +220,8 @@ def build_monster(b:MonsterBlueprint, *, roller=None)->Creature:
               organization=b.organization,treasure=b.treasure,
               advancement=b.advancement,level_adjustment=b.level_adjustment,
               manual_cr=cr,notes=b.notes,biography=b.biography.strip(),
+              gender=identity_text(b.gender, "Gender"),
+              age=identity_text(b.age, "Age"),
               rules_review="CR, natural attacks, species traits, class levels and templates are DM-reviewed.")
     return Creature(name=b.name.strip(),kind="monster",race_type=b.species.strip(),
                     character_class=b.creature_type,level=0,challenge_rating=cr,
