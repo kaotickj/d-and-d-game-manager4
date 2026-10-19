@@ -121,6 +121,12 @@ class ForgeUiTests(unittest.TestCase):
             win.open_narrator()
             self.assertIs(win._narrator_dialog, narrator)
             print('Scribe regression: closing narrator', flush=True)
+            print('quit_on_last:', self.app.quitOnLastWindowClosed(), flush=True)
+            print('top-level:', [
+                (type(widget).__name__, widget.isVisible(),
+                 widget.testAttribute(Qt.WidgetAttribute.WA_QuitOnClose))
+                for widget in self.app.topLevelWidgets()], flush=True)
+            self.app.setQuitOnLastWindowClosed(False)
             narrator.close()
             print("Scribe regression: close returned", flush=True)
             self.app.processEvents()
