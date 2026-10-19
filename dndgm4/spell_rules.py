@@ -105,9 +105,9 @@ def spell_profile(class_name: str, scores: dict[str,int]) -> dict:
                 "limits":{"0":0,"1":0}, "stat":None}
     stat,mode,slots,limits=CASTERS[class_name]
     ability=scores[stat]
-    if ability < 11 and class_name != "Bard":
-        raise ValueError(f"{class_name} needs {stat.title()} 11+ to cast 1st-level spells.")
-    day1=slots[1]+(bonus_slots(ability,1) if slots[1] > 0 else 0)
+    eligible = ability >= 11
+    day1=(slots[1]+bonus_slots(ability,1) if eligible and slots[1] > 0
+          else 0)
     if class_name=="Bard":
         # Bard 1 receives 0 base 1st-level slots and knows no 1st spells.
         day1=0
@@ -115,7 +115,8 @@ def spell_profile(class_name: str, scores: dict[str,int]) -> dict:
         "class":class_name,"mode":mode,"stat":stat,
         "spell_dc_0":10+ability_modifier(ability),
         "spell_dc_1":11+ability_modifier(ability),
-        "slots":{"0":slots[0],"1":day1},
+        "slots":{"0":slots[0] if ability >= 10 else 0,"1":day1},
+        "first_level_casting_available":eligible,
         "limits":{"0":limits[0] if limits else 0,
                   "1":limits[1] if limits else 0},
         "domain_slot_1":1 if class_name=="Cleric" else 0,
