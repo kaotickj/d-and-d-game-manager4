@@ -38,7 +38,8 @@ def _list(value,name,maxlen=100):
     return list(dict.fromkeys(x.strip() for x in value))
 
 def validate_draft(draft: dict, *, race: str, class_name: str,
-                   kind: str, racial_modifiers: dict | None = None) -> dict:
+                   kind: str, racial_modifiers: dict | None = None,
+                   desired_gender: str = "", desired_age: str = "") -> dict:
     if not isinstance(draft,dict):
         raise ValueError("Character proposal must be a JSON object.")
     if draft.get("kind") != kind or kind not in ("pc","npc"):
@@ -84,8 +85,16 @@ def validate_draft(draft: dict, *, race: str, class_name: str,
     if magic is None:
         magic=default_spellbook(class_name,final)
     magic=validate_spellbook(class_name,final,magic)
+    from .identity_rules import identity_text
+    gender = identity_text(draft.get("gender", ""), "Gender")
+    age = identity_text(draft.get("age", ""), "Age")
+    if desired_gender and gender != desired_gender:
+        raise ValueError("AI draft changed the selected gender.")
+    if desired_age and age != desired_age:
+        raise ValueError("AI draft changed the selected age.")
     features=_list(draft.get("class_features",[]),"class_features",30)
     return dict(name=_short(draft.get("name",""),"name",200),
+        gender=gender, age=age,
         base_scores=scores, alignment=alignment, feats=feats,
         equipment=gear,inventory=inventory or "\n".join(gear),
         skills_half_ranks=skill_ranks, spellbook=magic,

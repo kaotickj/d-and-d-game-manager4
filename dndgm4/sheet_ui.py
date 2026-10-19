@@ -175,9 +175,20 @@ class SheetOptions(QWidget):
         form.addRow("Deity / faith",self.deity)
         self.languages = QLineEdit("Common")
         form.addRow("Languages",self.languages)
+        self.gender = QComboBox()
+        self.gender.setEditable(True)
+        self.gender.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.gender.addItems(("Unspecified", "Female", "Male", "Nonbinary",
+                              "Genderless", "Other"))
+        self.gender.setAccessibleName("Character gender or identity")
+        self.gender.setToolTip("Descriptive only; no game-mechanical modifiers.")
+        form.addRow("Gender", self.gender)
         self.age = QLineEdit()
-        self.age.setPlaceholderText("Years, or character-specific description")
-        form.addRow("Age",self.age)
+        self.age.setMaxLength(80)
+        self.age.setPlaceholderText("e.g. 24 years, venerable, ageless")
+        self.age.setAccessibleName("Character age or life stage")
+        self.age.setToolTip("Age-related D&D 3.5 ability adjustments are not automatic.")
+        form.addRow("Age / life stage",self.age)
         self.appearance = QPlainTextEdit()
         self.appearance.setMaximumHeight(66)
         form.addRow("Appearance",self.appearance)
@@ -422,7 +433,8 @@ class SheetOptions(QWidget):
             spell_notes=self.spells.toPlainText(),
             spellbook=self.current_spellbook(),
             inventory=inventory_from_text(self.inventory.toPlainText()),
-            extra_notes=("Age: "+self.age.text().strip()+"\n"+self.other.toPlainText()).strip())
+            gender=self.gender.currentText(),age=self.age.text(),
+            extra_notes=self.other.toPlainText().strip())
 
     def load_existing(self,creature):
         data=load_sheet(creature)
@@ -435,6 +447,16 @@ class SheetOptions(QWidget):
         self.alignment.setCurrentText(data.get("alignment","True Neutral"))
         self.deity.setText(data.get("deity",""))
         self.languages.setText(", ".join(data.get("languages",[])))
+        # Old sheets stored age in extra_notes as 'Age: ...'; migrate it
+        # on editing without duplicating it or losing the remaining notes.
+        legacy_notes = data.get("extra_notes", "")
+        legacy_age = ""
+        if legacy_notes.startswith("Age:"):
+            first, separator, rest = legacy_notes.partition("\n")
+            legacy_age = first[4:].strip()
+            legacy_notes = rest if separator else ""
+        self.gender.setCurrentText(data.get("gender", "Unspecified"))
+        self.age.setText(data.get("age") or legacy_age)
         self.appearance.setPlainText(data.get("appearance",""))
         self.personality.setPlainText(data.get("personality",""))
         self.background.setPlainText(data.get("background",""))
@@ -444,7 +466,7 @@ class SheetOptions(QWidget):
         self.inventory.setPlainText(inventory_to_text(
             data.get("inventory") or inventory_from_text(
                 "\n".join(data.get("equipment",[])))))
-        self.other.setPlainText(data.get("extra_notes",""))
+        self.other.setPlainText(legacy_notes)
         self.hit_die.setValue(data.get("custom_hd",8))
         self.sp_rate.setValue(data.get("custom_skill_points",4))
         self.custom_skills.setText(", ".join(data.get("custom_class_skills",[])))

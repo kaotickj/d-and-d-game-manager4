@@ -460,3 +460,33 @@ https://www.d20srd.org/srd/classes/bard.htm ,
 https://www.d20srd.org/srd/classes/cleric ,
 https://www.d20srd.org/srd/classes/druid.htm ,
 https://www.d20srd.org/srd/feats.htm
+
+
+## v0.7.1: age and gender identity for all three character types
+
+**Characters and NPCs:** On the Story tab, select or enter a gender
+(Unspecified/Female/Male/Nonbinary/Genderless/Other or a custom description)
+and enter a character age or life stage. Both are saved as independent
+`gender` and `age` fields in the structured sheet, available to The Scribe
+and on subsequent edits. Previous v0.7.0 sheets kept age inside
+`extra_notes` as `Age: ...`; the Forge now recognizes and moves that value
+into the dedicated age field on editing, without losing other notes.
+
+**Monsters:** Monster Forge now also has editable gender and age/life stage,
+including suitable values such as Genderless, Ancient, Ageless or a numerical
+age. Those values are stored separately alongside creature type, racial
+Hit Dice, lore and other monster properties, and are preserved on reopening
+a monster. Monster biography generation uses both attributes in its prompt.
+
+**AI creation:** The complete Gemma/Qwen first-level character generator
+requests gender and age and validates the returned strings. If the user
+sets either in advance, the AI cannot silently change it; when left
+unspecified, the model may propose values. Character/NPC biography writing
+also receives the current gender and age.
+
+These identity entries are descriptive and **do not automatically trigger
+D&D 3.5 age penalties or bonuses**. Such calculations require an
+individual species' age categories, which remain a separate rules milestone.
+The existing creature SQLite schema and ability-score/banner layout are
+unchanged. Regression tests cover PC/NPC/monster round trips and migration
+from old age notes.

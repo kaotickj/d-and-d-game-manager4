@@ -86,6 +86,20 @@ class MonsterCreatorDialog(QDialog):
         self.species.setCurrentText("")
         self.species.setAccessibleName("Creature species, custom names allowed")
         form.addRow("Species",self.species)
+        self.gender=QComboBox()
+        self.gender.setEditable(True)
+        self.gender.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.gender.addItems(("Unspecified","Female","Male","Nonbinary",
+                              "Genderless","Other"))
+        self.gender.setAccessibleName("Monster gender or identity")
+        self.gender.setToolTip("May be genderless or unknown; no combat modifiers.")
+        form.addRow("Gender",self.gender)
+        self.age=QLineEdit()
+        self.age.setMaxLength(80)
+        self.age.setPlaceholderText("e.g. 120 years, ancient, ageless, hatchling")
+        self.age.setAccessibleName("Monster age or life stage")
+        self.age.setToolTip("No automatic racial aging or age-category modifiers.")
+        form.addRow("Age / life stage",self.age)
 
         self.type=QComboBox()
         self.type.addItems(TYPES.keys())
@@ -311,6 +325,7 @@ class MonsterCreatorDialog(QDialog):
             treasure=self.treasure.text(),advancement=self.advancement.text(),
             level_adjustment=self.la.text(),notes=self.notes.toPlainText(),
             biography=self.biography.toPlainText(),
+            gender=self.gender.currentText(),age=self.age.text(),
             hp_method=self.hp_method.currentData(),
             manual_hit_points=self.manual_hp.value())
 
@@ -332,6 +347,8 @@ class MonsterCreatorDialog(QDialog):
         context = "\n".join((
             f"Name: {self.name.text() or 'Unnamed creature'}",
             f"Species: {self.species.currentText() or 'Original species'}",
+            f"Gender: {self.gender.currentText()}",
+            f"Age / life stage: {self.age.text() or 'Unspecified'}",
             f"Type: {self.type.currentText()}; subtype: {self.subtype.text()}",
             f"Size: {self.size.currentText()}; racial Hit Dice: {self.hd.value()}",
             f"Ability scores: {attributes}",
@@ -387,6 +404,8 @@ class MonsterCreatorDialog(QDialog):
             return
         self.name.setText(record.name)
         self.species.setCurrentText(data.get("species",record.race_type))
+        self.gender.setCurrentText(data.get("gender") or "Unspecified")
+        self.age.setText(data.get("age",""))
         self.type.setCurrentText(data["monster_type"])
         self.subtype.setText(data.get("subtype",""))
         self.size.setCurrentText(data.get("size","Medium"))
