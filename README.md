@@ -286,3 +286,40 @@ The minimum main window width is **830 pixels** (previously 800),
 so the workspace retains its previous minimum space. Sidebar labels and
 buttons are not renamed or removed. The original hero banner and
 square ability-score tiles remain unchanged.
+
+
+## v0.6.3: Gemma/Qwen3 biographies for characters, NPCs and monsters
+
+The Scribe now has three **distinct, editable biography tasks**, all
+available with either of the existing local Goodneighbor Blues text GGUF models:
+
+- **Player characters:** In Character Forge, choose *Generate Character
+  Biography*. The draft reflects name, race, class, alignment, ability scores,
+  existing personality, appearance and DM notes, then fills the sheet's
+  existing background field when **Use Draft** is selected.
+- **NPCs:** In NPC Forge, choose *Generate NPC Biography*. This uses an
+  NPC-specific prompt for personal history, relationships, occupation/faction,
+  motives, secrets and campaign hooks. The draft saves in that NPC's existing
+  character-sheet background field.
+- **Monsters:** In Monster Forge, use *Generate Monster Biography*. This
+  includes species, creature type/subtype, size, racial Hit Dice, attributes
+  (including absent INT or CON), environment, attacks, qualities, alignment
+  and DM notes as writing context. It asks for original bestiary lore,
+  ecology, behavior, sightings and adventure hooks, not invented combat rules.
+  The Monster Forge has a separate editable *Bestiary biography* field stored
+  in its structured JSON. Existing DM notes are never replaced.
+
+**Safeguards:** Generation is strictly opt-in. Drafts are edited and explicitly
+accepted before being copied into the relevant biography field. Replacing a
+nonempty biography requires a separate confirmation. Dismissing the AI dialog
+does not change the record. Biographies appear in the selected-record
+preview, independently of the original DM or creation notes. Saving/reopening
+a creature preserves the biography without changing its monster statistics.
+
+**Model selection:** Gemma The Writer 9B is offered as the prose default and
+Qwen3 4B Instruct can be selected via the preset dropdown for *every* mode.
+They reuse the same existing GGUF model files and local llama.cpp runtime,
+including native CPU threading and the optional warm-model cache added in
+v0.6.1. There are no model downloads or cloud API requirements. This
+milestone does not alter the main window layout, sidebar, banner, ability
+score tiles, character stats, monster arithmetic or database schema.
