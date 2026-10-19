@@ -7,9 +7,7 @@ from __future__ import annotations
 
 import json
 from .creation import ABILITIES, adjusted_scores
-from .character_sheet import TEMPLATES, NPC_CLASS_TEMPLATES, ALIGNMENTS, (
-    SKILLS
-)
+from .character_sheet import TEMPLATES, NPC_CLASS_TEMPLATES, ALIGNMENTS, SKILLS
 from .character_sheet import class_specs, skill_budget, validate_allocations
 from .build_rules import feat_review, inventory_from_text
 from .spell_rules import default_spellbook, validate_spellbook
