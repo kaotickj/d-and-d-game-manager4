@@ -76,6 +76,7 @@ class AIWritingDialog(QDialog):
         title = QLabel({
             "bio": "Player Character Biography",
             "npc_bio": "Nonplayer Character Biography",
+            "character_build": "Complete D&D 3.5 Character Draft",
             "monster_bio": "Monster Bestiary Biography",
             "dm": "Dungeon Master's Narrator",
             "names": "AI Name Inspiration",
@@ -109,7 +110,7 @@ class AIWritingDialog(QDialog):
         for display, path in GGUF_MODELS.items():
             self.preset.addItem(display, str(path))
         self.preset.addItem("Custom GGUF file", "")
-        if kind in ("dm", "bio", "npc_bio", "monster_bio"):
+        if kind in ("dm", "bio", "npc_bio", "monster_bio", "character_build"):
             self.preset.setCurrentIndex(1)  # Gemma writer is the prose default.
         self.preset.setAccessibleName("Choose Qwen3, Gemma or custom GGUF model")
         self.preset.currentIndexChanged.connect(self._choose_preset)
@@ -195,7 +196,7 @@ class AIWritingDialog(QDialog):
         actions.addWidget(copy)
         actions.addStretch()
         self.use = QPushButton(
-            "Use Draft" if kind in ("bio", "npc_bio", "monster_bio", "names")
+            "Use Draft" if kind in ("bio", "npc_bio", "monster_bio", "character_build", "names")
             else "Close"
         )
         self.use.clicked.connect(self.accept_draft)
@@ -288,7 +289,7 @@ class AIWritingDialog(QDialog):
         super().closeEvent(event)
 
     def accept_draft(self):
-        if self.kind in ("bio", "npc_bio", "monster_bio", "names") and not self.result.toPlainText().strip():
+        if self.kind in ("bio", "npc_bio", "monster_bio", "character_build", "names") and not self.result.toPlainText().strip():
             QMessageBox.information(self, "Nothing to use", "Write or generate a draft first.")
             return
         self.generated_text = self.result.toPlainText()
