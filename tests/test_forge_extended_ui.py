@@ -119,7 +119,18 @@ class ForgeUiTests(unittest.TestCase):
             narrator.close()
             self.app.processEvents()
             self.assertTrue(win.isVisible())
-            self.assertIsNone(win._narrator_dialog)
+            self.assertFalse(narrator.isVisible())
+            self.assertIs(win._narrator_dialog, narrator)
+            # The sidebar can reopen the same dialog; closing it a second
+            # time must not end the compendium.
+            win.open_narrator()
+            self.app.processEvents()
+            self.assertIs(win._narrator_dialog, narrator)
+            self.assertTrue(narrator.isVisible())
+            narrator.use.click()
+            self.app.processEvents()
+            self.assertTrue(win.isVisible())
+            self.assertFalse(narrator.isVisible())
             win.close()
 
     def test_dm_sidebar_action_and_local_ai_no_auto_calls(self):
