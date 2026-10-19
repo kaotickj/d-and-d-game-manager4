@@ -126,3 +126,43 @@ The six preview tiles (STR, DEX, CON, INT, WIS, CHA) now always occupy
 longer flatten vertically when the application is unmaximized or the
 records/preview splitter changes orientation. The original 166px main
 illustration, fonts, window geometry and other layout elements are unchanged.
+
+
+## v0.5.4: Reuse existing Goodneighbor Blues GGUF text models
+
+The Scribe defaults to the **Existing GGUF models (llama.cpp)** backend.
+Two presets point to text models already downloaded for Goodneighbor Blues:
+
+- Qwen3: ~/.goodneighbor_blues_dj/ai_writer/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+- Gemma Writer: ~/.goodneighbor_blues_dj/ai_writer/models/Gemma-The-Writer-Mighty-Sword-9B-D_AU-Q4_k_m.gguf
+
+On Windows, ~ means the home folder, e.g. C:/Users/warha_fx.
+Model weights are never downloaded, imported, copied, moved, or packaged.
+Gemma is suggested for character biographies and DM scenes, and Qwen3 for
+names; the user can select either model for every writing task. Custom model
+paths can be browsed in The Scribe.
+
+**Inference engine:** GGUF is a model file format, not an executable.
+A separate llama.cpp **llama-server** executable must exist on the machine.
+The Scribe discovers it on PATH or some conventional local installation paths;
+otherwise use the executable Browse picker to select llama-server.exe.
+The desktop installer does not include or automatically download this
+third-party engine. Install/build llama.cpp separately under its own license
+if necessary. When the user explicitly clicks Generate, the app launches
+the selected engine on 127.0.0.1 using a temporary local port, loads the
+existing GGUF weights without modifying them, and terminates the temporary
+server after one request. Each request reloads the model and may take time.
+
+By default GPU layers are 0 (portable CPU mode). Higher GPU offload requires
+a compatible llama.cpp runtime such as a Vulkan-enabled build for supported AMD
+GPUs and adequate GPU memory; adjust the optional GPU layers control if
+appropriate. Models can require several GB of RAM.
+
+**Alternative:** Ollama localhost remains available as an explicit backend
+option for already registered Ollama model names. Ollama cannot treat a
+GGUF file path as a model registry name without importing it. Importing may
+consume additional storage, so direct GGUF/llama.cpp is preferred when the
+goal is to share model files already used in the Goodneighbor writer.
+
+Drafts remain editable. No changes were made to the main fantasy banner,
+six ability-score squares, database, character rules, or other GUI layout.

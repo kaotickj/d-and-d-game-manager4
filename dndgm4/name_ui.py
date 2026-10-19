@@ -137,7 +137,7 @@ class NamePickerDialog(QDialog):
         regenerate.clicked.connect(self.generate)
         footer.addWidget(regenerate)
         ai_names = QPushButton("AI Name Ideas (Local)")
-        ai_names.setAccessibleName("Generate optional name ideas using a local Qwen3 language model")
+        ai_names.setAccessibleName("Generate optional name ideas using existing local Qwen3 or Gemma GGUF")
         ai_names.clicked.connect(self.ai_names)
         footer.addWidget(ai_names)
         footer.addStretch()
