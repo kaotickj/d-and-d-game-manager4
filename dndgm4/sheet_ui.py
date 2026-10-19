@@ -19,6 +19,8 @@ from .character_sheet import (
     ALIGNMENTS, SKILLS, TEMPLATES, allocate_default_skills, build_sheet,
     class_specs, skill_budget, validate_allocations, load_sheet
 )
+from .spell_rules import CASTERS, SPELL_LISTS, default_spellbook, spell_profile, validate_spellbook
+from .build_rules import inventory_from_text, inventory_to_text
 
 
 def lines(value: str) -> list[str]:
@@ -48,6 +50,8 @@ class SheetOptions(QWidget):
         self._build_tab()
         self._skills_tab()
         self._story_tab()
+        self._magic_tab()
+        self._inventory_tab()
         self.class_picker.currentIndexChanged.connect(self.change_class)
         self.race_picker.currentIndexChanged.connect(self.update_budget)
         self.change_class()
@@ -174,7 +178,93 @@ class SheetOptions(QWidget):
         self.other = QPlainTextEdit()
         self.other.setMaximumHeight(80)
         form.addRow("Other attributes",self.other)
-        self.tabs.addTab(page,"Story & Magic")
+        self.tabs.addTab(page,"Story")
+
+
+    def _magic_tab(self):
+        page=QWidget()
+        form=QFormLayout(page)
+        form.setContentsMargins(14,12,14,12)
+        self.magic_status=QLabel()
+        self.magic_status.setWordWrap(True)
+        form.addRow("SRD spellcasting",self.magic_status)
+        self.spell_fields={}
+        for kind,title in (("known","Spells known"),("prepared","Prepared spells"),
+                           ("spellbook","Spellbook")):
+            for level in ("0","1"):
+                control=QPlainTextEdit()
+                control.setAccessibleName(f"{title} level {level}")
+                control.setPlaceholderText("One SRD spell per line")
+                control.setMaximumHeight(90)
+                control.setMinimumHeight(48)
+                form.addRow(f"{title} (level {level})",control)
+                self.spell_fields[(kind,level)]=control
+        self.domains=QLineEdit()
+        self.domains.setPlaceholderText("Cleric domains; DM checks actual domain spell")
+        form.addRow("Cleric domains",self.domains)
+        self.school=QLineEdit()
+        self.school.setPlaceholderText("Wizard specialization (DM review)")
+        form.addRow("Wizard school",self.school)
+        self.prohibited_schools=QLineEdit()
+        form.addRow("Prohibited schools",self.prohibited_schools)
+        self.tabs.addTab(page,"Spells & Spellbook")
+
+    def _inventory_tab(self):
+        page=QWidget()
+        outer=QVBoxLayout(page)
+        note=QLabel("One item per line; enter 3 x Torch, 2 x Rations, or Spellbook. "
+                    "Item weight, price, and equipment slots still require DM review.")
+        note.setWordWrap(True)
+        outer.addWidget(note)
+        self.inventory=QPlainTextEdit()
+        self.inventory.setAccessibleName("Quantity-aware inventory")
+        self.inventory.setMinimumHeight(170)
+        outer.addWidget(self.inventory)
+        self.tabs.addTab(page,"Inventory")
+
+    def refresh_spell_profile(self):
+        name=self.current_class()
+        profile=spell_profile(name,self.scores_provider())
+        if name not in CASTERS:
+            self.magic_status.setText(
+                "No validated level-one SRD spellcasting. "
+                "Supplemental and homebrew powers remain in Story notes.")
+        else:
+            self.magic_status.setText(
+                f"{name} • {profile['mode']} • {profile['stat']} • "
+                f"Slots per day: cantrips {profile['slots']['0']}, "
+                f"1st {profile['slots']['1']} • "
+                f"Spell save DCs: {profile['spell_dc_0']}/{profile['spell_dc_1']}. "
+                "Catalog spell names and first-level limits are checked.")
+        for (kind,level),field in self.spell_fields.items():
+            valid=(name=="Wizard" if kind=="spellbook" else
+                   profile["mode"]=="spontaneous" if kind=="known" else
+                   profile["mode"]=="prepared")
+            field.setEnabled(valid)
+            if name in SPELL_LISTS:
+                field.setToolTip(", ".join(SPELL_LISTS[name][int(level)]))
+
+    def fill_spellbook(self, data):
+        for kind in ("known","prepared","spellbook"):
+            for level in ("0","1"):
+                self.spell_fields[(kind,level)].setPlainText(
+                    "\n".join(data.get(kind,{}).get(level,[])))
+        self.domains.setText(", ".join(data.get("domains",[])))
+        self.school.setText(data.get("specialization",""))
+        self.prohibited_schools.setText(
+            ", ".join(data.get("prohibited_schools",[])))
+
+    def current_spellbook(self):
+        payload={
+            "version":1,"casting_class":self.current_class(),
+            **{kind:{level:lines(self.spell_fields[(kind,level)].toPlainText())
+                      for level in ("0","1")}
+               for kind in ("known","prepared","spellbook")},
+            "domains":lines(self.domains.text()),
+            "specialization":self.school.text().strip(),
+            "prohibited_schools":lines(self.prohibited_schools.text()),
+        }
+        return validate_spellbook(self.current_class(),self.scores_provider(),payload)
 
     def current_class(self):
         return (self.custom_class_name.text().strip()
@@ -213,6 +303,7 @@ class SheetOptions(QWidget):
         )
         self.refresh_skill_types()
         self.apply_preset()
+        self.refresh_spell_profile()
         self.update_budget()
 
     def refresh_skill_types(self, *args):
@@ -235,6 +326,9 @@ class SheetOptions(QWidget):
             self.feats.setPlainText("\n".join(t.suggested_feats))
             self.equipment.setPlainText("\n".join(t.suggested_equipment))
             self.spells.setPlainText(t.spellcasting_note)
+            self.fill_spellbook(default_spellbook(
+                self.current_class(),self.scores_provider()))
+            self.inventory.setPlainText("\n".join(t.suggested_equipment))
             try:
                 race=self.race_picker.currentText()
                 score=self.scores_provider()
@@ -249,6 +343,8 @@ class SheetOptions(QWidget):
                 self.feats.clear()
                 self.equipment.clear()
                 self.spells.clear()
+                self.inventory.clear()
+                self.fill_spellbook({})
         for name,field in self.skill_fields.items():
             field.blockSignals(True)
             field.setValue(allocated.get(name,0)/2)
@@ -287,6 +383,8 @@ class SheetOptions(QWidget):
             custom_class_skills=lines(self.custom_skills.text()),
             class_features=lines(self.features.toPlainText()),
             spell_notes=self.spells.toPlainText(),
+            spellbook=self.current_spellbook(),
+            inventory=inventory_from_text(self.inventory.toPlainText()),
             extra_notes=("Age: "+self.age.text().strip()+"\n"+self.other.toPlainText()).strip())
 
     def load_existing(self,creature):
@@ -304,6 +402,11 @@ class SheetOptions(QWidget):
         self.personality.setPlainText(data.get("personality",""))
         self.background.setPlainText(data.get("background",""))
         self.spells.setPlainText(data.get("spell_notes",""))
+        self.fill_spellbook(data.get("spellbook") or default_spellbook(
+            self.current_class(),self.scores_provider()))
+        self.inventory.setPlainText(inventory_to_text(
+            data.get("inventory") or inventory_from_text(
+                "\n".join(data.get("equipment",[])))))
         self.other.setPlainText(data.get("extra_notes",""))
         self.hit_die.setValue(data.get("custom_hd",8))
         self.sp_rate.setValue(data.get("custom_skill_points",4))
