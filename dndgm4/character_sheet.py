@@ -205,7 +205,8 @@ def build_sheet(*, character: Creature, class_name: str, ranks: dict[str,int],
                 class_features: list[str] | None = None,
                 spell_notes: str = "", extra_notes: str = "",
                 spellbook: dict | None = None, inventory: list[dict] | None = None,
-                strict_feats: bool = False) -> Creature:
+                strict_feats: bool = False,
+                gender: str = "", age: str = "") -> Creature:
     """Attach validated structured selections without discarding base rolls."""
     from dataclasses import replace
     if alignment not in ALIGNMENTS:
@@ -224,6 +225,7 @@ def build_sheet(*, character: Creature, class_name: str, ranks: dict[str,int],
         raise ValueError("Too many feats or equipment lines.")
     if any(len(x)>180 for x in feats+equipment+languages):
         raise ValueError("One or more entries are too long.")
+    from .identity_rules import identity_text
     from .build_rules import feat_review, inventory_from_text
     from .spell_rules import validate_spellbook
     score_values = {ability:getattr(character,ability) for ability in ABILITIES}
@@ -241,8 +243,11 @@ def build_sheet(*, character: Creature, class_name: str, ranks: dict[str,int],
                             inventory_from_text("\n".join(equipment)))
     if not isinstance(structured_inventory,list) or len(structured_inventory)>150:
         raise ValueError("Invalid inventory entries.")
+    gender = identity_text(gender, "Gender")
+    age = identity_text(age, "Age")
     data = {
         "version": 1, "class": class_name,
+        "gender": gender, "age": age,
         "supplemental_template": t.supplement,
         "custom_hd": custom_hd, "custom_skill_points": custom_sp,
         "custom_class_skills": custom_class_skills or [],
