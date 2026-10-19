@@ -490,3 +490,29 @@ individual species' age categories, which remain a separate rules milestone.
 The existing creature SQLite schema and ability-score/banner layout are
 unchanged. Regression tests cover PC/NPC/monster round trips and migration
 from old age notes.
+
+
+## v0.7.2: child-dialog and AI Use Draft lifecycle hotfix
+
+Fixes a reported Windows regression where closing a secondary window,
+particularly pressing **Use Draft** in the AI character generator, terminated
+the entire manager. The app now disables Qt's implicit *quit when the last
+window closes* behavior, and quits explicitly only when the Compendium main
+window itself closes. This applies to Character Forge, NPC Forge, Monster
+Forge, The Scribe and other child windows.
+
+The AI character generation route now catches unexpected errors while applying
+a reviewed draft and shows an error rather than letting exceptions escape
+the Qt button callback. No character is automatically saved by Use Draft;
+the editable Forge remains the source of truth.
+
+The regression test runs a real `QApplication.exec()` in a separate process,
+opens the true `MainWindow.create("pc")` path, opens The Scribe in a nested
+`QDialog.exec()`, clicks its actual **Use Draft** button with a validated
+AI proposal, then checks both the Forge and the Compendium are still visible.
+This is not merely a mock returning `Accepted`. No model is executed during
+the GUI regression. Windows runtime tests are required before merge.
+
+The existing 3.5 rules calculations, stored characters, persistent scenes,
+fantasy banner, ability-score layout and previous one-request GGUF model
+runtime are unchanged.
