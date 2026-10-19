@@ -25,7 +25,14 @@ def load_artwork(name: str) -> QPixmap:
     if name not in _ASSET_NAMES:
         raise ValueError("Unknown artwork asset.")
     image = QPixmap()
-    image.loadFromData(files("dndgm4").joinpath("assets", name).read_bytes())
+    try:
+        payload = files("dndgm4").joinpath("assets", name).read_bytes()
+    except (FileNotFoundError, OSError):
+        # A partially installed or quarantined art file must never prevent
+        # the entire application from launching. The banner renders its
+        # existing text fallback if its image cannot be loaded.
+        return image
+    image.loadFromData(payload)
     return image
 
 
