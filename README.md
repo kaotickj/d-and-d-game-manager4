@@ -150,8 +150,8 @@ The desktop installer does not include or automatically download this
 third-party engine. Install/build llama.cpp separately under its own license
 if necessary. When the user explicitly clicks Generate, the app launches
 the selected engine on 127.0.0.1 using a temporary local port, loads the
-existing GGUF weights without modifying them, and terminates the temporary
-server after one request. Each request reloads the model and may take time.
+existing GGUF weights without modifying them. In v0.6.1, the user can
+optionally keep the engine loaded between requests and unload it on demand.
 
 By default GPU layers are 0 (portable CPU mode). Higher GPU offload requires
 a compatible llama.cpp runtime such as a Vulkan-enabled build for supported AMD
@@ -246,3 +246,33 @@ Rules references (D&D 3.5 SRD, Open Game Content):
 This release changes no main banner artwork, ability-score presentation or
 existing data schema. The old generic record editor remains available for
 legacy monster records.
+
+
+## v0.6.1: faster Scribe generation with native CPU threading
+
+In The Scribe's **Performance settings**, the decoding thread count and
+prompt-processing (batch) thread count can be configured separately.
+Both are passed to the installed llama.cpp executable as
+`--threads` and `--threads-batch`. The conservative initial suggestion
+is half the detected logical CPU count, capped at 16; e.g. a machine with
+12 logical threads starts at 6. Increasing thread counts past the physical
+core count can **reduce** output speed due to oversubscription. Benchmark
+your own CPU, GGUF model and GPU-offload settings with the displayed total
+generation time. Ollama manages its own threads and is unaffected.
+
+The optional **Keep the selected model loaded** setting (enabled by default)
+caches one llama-server process after generation, so the next name, character
+bio or DM narration with the same model and settings doesn't have to reload
+multiple GB of weights. Changing model, GPU offload or CPU thread settings
+restarts the cached engine safely. Requests are serialized to avoid launching
+multiple memory-heavy 9B copies. **Unload Model** releases the memory on
+demand; quitting Game Manager also terminates the owned engine. Disabling the
+checkbox restores the original start-for-one-request-and-stop behavior. While
+loaded, the server only listens on loopback (127.0.0.1), never a LAN/public
+interface. No model files are modified or copied.
+
+Generation still runs off the Qt GUI thread, and The Scribe now shows elapsed
+seconds including loading overhead. CPU threading can help inference but
+does not promise a specific acceleration factor. A compatible GPU-enabled
+llama.cpp build may offer a larger speed improvement than more CPU threads,
+especially for the Gemma 9B model.
