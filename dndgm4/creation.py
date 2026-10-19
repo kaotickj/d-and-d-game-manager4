@@ -143,9 +143,15 @@ def build_character(*, name: str, race: str, character_class: str,
     hit_die = (CORE_CLASSES[character_class][0] if character_class in CORE_CLASSES
                else custom_hit_die)
     hp = max(1, hit_die + ability_modifier(final["constitution"]))
-    is_small = (size_override == "Small" if size_override else
-                race in SMALL_RACES)
-    ac = 10 + ability_modifier(final["dexterity"]) + (1 if is_small else 0)
+    # The complete size modifier is required for NPC races outside the core
+    # Small/Medium range. This is AC only; other racial traits are not assumed.
+    size_ac = {"Fine":8,"Diminutive":4,"Tiny":2,"Small":1,"Medium":0,
+               "Large":-1,"Huge":-2,"Gargantuan":-4,"Colossal":-8}
+    if size_override is not None and size_override not in size_ac:
+        raise ValueError("Unknown NPC size category.")
+    ac = (10 + ability_modifier(final["dexterity"])
+          + (size_ac[size_override] if size_override is not None else
+             (1 if race in SMALL_RACES else 0)))
     skill_rate = (CORE_CLASSES[character_class][1] if character_class in CORE_CLASSES
                   else custom_skill_points)
     skill = max(1, skill_rate + ability_modifier(final["intelligence"])) * 4
