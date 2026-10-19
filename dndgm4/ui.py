@@ -16,6 +16,7 @@ from .models import Creature, KIND_LABELS
 from .storage import CreatureRepository
 from .name_ui import NamePickerDialog
 from .roll_ui import CharacterCreatorDialog, DiceDialog
+from .monster_ui import MonsterCreatorDialog
 from .ai_ui import AIWritingDialog
 
 
@@ -638,10 +639,12 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def create(self, kind):
-        if kind == "pc":
-            dialog = CharacterCreatorDialog(self)
+        if kind in ("pc", "npc"):
+            dialog = CharacterCreatorDialog(self, kind=kind)
+        elif kind == "monster":
+            dialog = MonsterCreatorDialog(self)
         else:
-            dialog = CreatureEditor(Creature(name="", kind=kind), self)
+            raise ValueError("Unknown record type.")
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.persist(dialog.result_creature)
 
@@ -649,8 +652,18 @@ class MainWindow(QMainWindow):
         record = self.selected()
         if record is None:
             return
-        if record.kind == "pc" and record.sheet_json and record.level == 1:
+        if (record.kind in ("pc", "npc") and record.sheet_json
+                and record.level == 1):
             dialog = CharacterCreatorDialog(self, creature=record)
+        elif record.kind == "monster" and record.sheet_json:
+            import json
+            try:
+                structure = json.loads(record.sheet_json)
+            except ValueError:
+                structure = {}
+            dialog = (MonsterCreatorDialog(self, creature=record)
+                      if structure.get("monster_type") else
+                      CreatureEditor(record, self))
         else:
             dialog = CreatureEditor(record, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
