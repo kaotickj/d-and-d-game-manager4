@@ -487,32 +487,44 @@ class CharacterCreatorDialog(QDialog):
                 str(exc)+"\nEdit the AI draft and try again; the character "
                 "was not modified or saved.")
             return
-        self.method.setCurrentIndex(2)
-        for name,field in self.score_inputs.items():
-            field.setValue(proposal["base_scores"][name])
-        self.name.setText(proposal["name"])
-        self.options.build_mode.setCurrentIndex(1)
-        self.options.feats.setPlainText("\n".join(proposal["feats"]))
-        self.options.equipment.setPlainText("\n".join(proposal["equipment"]))
-        self.options.inventory.setPlainText(proposal["inventory"])
-        self.options.features.setPlainText("\n".join(proposal["class_features"]))
-        for name,field in self.options.skill_fields.items():
-            field.setValue(proposal["skills_half_ranks"].get(name,0)/2)
-        self.options.fill_spellbook(proposal["spellbook"])
-        self.options.alignment.setCurrentText(proposal["alignment"])
-        self.options.deity.setText(proposal["deity"])
-        self.options.languages.setText(", ".join(proposal["languages"]))
-        self.options.appearance.setPlainText(proposal["appearance"])
-        self.options.personality.setPlainText(proposal["personality"])
-        self.options.background.setPlainText(proposal["biography"])
-        self.options.gender.setCurrentText(proposal["gender"] or "Unspecified")
-        self.options.age.setText(proposal["age"])
-        self.notes.setPlainText(proposal["notes"])
-        self.ai_draft_applied=True
-        self.message.setText(
-            "AI draft validated and loaded. Review all equipment, feat "
-            "details, special abilities, domain spells and inventory before saving.")
-        self.update_totals()
+        try:
+            self.method.setCurrentIndex(2)
+            for name,field in self.score_inputs.items():
+                field.setValue(proposal["base_scores"][name])
+            self.name.setText(proposal["name"])
+            self.options.build_mode.setCurrentIndex(1)
+            self.options.feats.setPlainText("\n".join(proposal["feats"]))
+            self.options.equipment.setPlainText("\n".join(proposal["equipment"]))
+            self.options.inventory.setPlainText(proposal["inventory"])
+            self.options.features.setPlainText("\n".join(proposal["class_features"]))
+            for name,field in self.options.skill_fields.items():
+                field.setValue(proposal["skills_half_ranks"].get(name,0)/2)
+            self.options.fill_spellbook(proposal["spellbook"])
+            self.options.alignment.setCurrentText(proposal["alignment"])
+            self.options.deity.setText(proposal["deity"])
+            self.options.languages.setText(", ".join(proposal["languages"]))
+            self.options.appearance.setPlainText(proposal["appearance"])
+            self.options.personality.setPlainText(proposal["personality"])
+            self.options.background.setPlainText(proposal["biography"])
+            self.options.gender.setCurrentText(proposal["gender"] or "Unspecified")
+            self.options.age.setText(proposal["age"])
+            self.notes.setPlainText(proposal["notes"])
+            self.ai_draft_applied=True
+            self.message.setText(
+                "AI draft validated and loaded. Review all equipment, feat "
+                "details, special abilities, domain spells and inventory before saving.")
+            self.update_totals()
+
+        except Exception as exc:
+            # Exceptions escaping a PyQt button slot can abort the frozen
+            # executable without a traceback. Keep the main app alive and
+            # make the failed import visible to the DM.
+            QMessageBox.critical(
+                self, "Unable to apply AI draft",
+                "The generated draft could not be applied to Character Forge. "
+                "No character has been saved.\n\n"
+                f"{type(exc).__name__}: {exc}"
+            )
 
     def refresh_recommendations(self, *args):
         if hasattr(self, "options") and self.options.build_mode.currentIndex()==0:

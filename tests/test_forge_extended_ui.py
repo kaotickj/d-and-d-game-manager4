@@ -98,6 +98,21 @@ class ForgeUiTests(unittest.TestCase):
                     str(GGUF_MODELS["Qwen3 4B Instruct (GGUF)"]))
                 dialog.close()
 
+    def test_scribe_use_draft_preserves_qdialog_done_method(self):
+        from PyQt6.QtWidgets import QDialog
+        from dndgm4.ai_ui import AIWritingDialog
+        # A previous AI completion callback named 'done' accidentally
+        # shadowed QDialog.done(int), crashing Qt when Use Draft was pressed.
+        self.assertNotIn("done", AIWritingDialog.__dict__)
+        self.assertTrue(hasattr(AIWritingDialog, "generation_completed"))
+        dialog = AIWritingDialog("character_build", "Create a level-1 fighter")
+        dialog.generation_completed('{"name": "Tarin"}')
+        self.assertEqual(dialog.result.toPlainText(), '{"name": "Tarin"}')
+        dialog.use.click()
+        self.assertEqual(dialog.generated_text, '{"name": "Tarin"}')
+        self.assertEqual(QDialog.result(dialog), QDialog.DialogCode.Accepted)
+        dialog.close()
+
     def test_closing_narrator_keeps_main_window_open(self):
         from dndgm4.storage import CreatureRepository
         from dndgm4.ui import MainWindow

@@ -11,6 +11,10 @@ def main() -> int:
     from .ui import MainWindow
 
     app = QApplication(sys.argv)
+    # Character/NPC/Monster Forge uses nested child dialogs, including the
+    # Scribe's Use Draft flow. Only an explicit main-window close may quit the
+    # program. Qt's automatic last-window detection is unsafe in this stack.
+    app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("D&D Game Manager 4")
     app.setOrganizationName("Kaotick Jay")
     app.setWindowIcon(window_icon())

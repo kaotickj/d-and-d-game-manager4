@@ -258,11 +258,17 @@ class AIWritingDialog(QDialog):
                         self.runner.text().strip() if backend == "gguf" else "",
                         self.gpu_layers.value() if backend == "gguf" else 0)
         self.worker = job
-        job.signals.done.connect(self.done)
+        job.signals.done.connect(self.generation_completed)
         job.signals.failed.connect(self.failed)
         QThreadPool.globalInstance().start(job)
 
-    def done(self, output):
+    def generation_completed(self, output):
+        """Handle completed inference without overriding QDialog.done(int).
+
+        Qt invokes QDialog.done(result_code) when Use Draft calls accept().
+        A Python method named done(output) shadows that virtual method and
+        receives an integer here, crashing the Windows Qt event loop.
+        """
         self.result.setPlainText(output)
         self.status.setText("Generated locally. Review and edit before using.")
         self.generate_button.setEnabled(True)
