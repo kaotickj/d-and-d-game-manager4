@@ -4,7 +4,7 @@ from dataclasses import replace
 from PyQt6.QtCore import Qt, QItemSelectionModel
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
-    QButtonGroup, QCheckBox, QDialog, QFormLayout, QFrame, QGridLayout,
+    QApplication, QButtonGroup, QCheckBox, QDialog, QFormLayout, QFrame, QGridLayout,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
     QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
     QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QSizePolicy,
@@ -817,6 +817,15 @@ class MainWindow(QMainWindow):
         self._show_scribe_context(
             "selection" if self._selected_ids() else "scene"
         )
+
+    def closeEvent(self, event):
+        # QApplication.setQuitOnLastWindowClosed(False) is intentionally used:
+        # only a deliberate close of the real main window ends the app.
+        super().closeEvent(event)
+        if event.isAccepted():
+            app = QApplication.instance()
+            if app is not None:
+                app.quit()
 
     def open_dice(self):
         dialog = DiceDialog(self)
