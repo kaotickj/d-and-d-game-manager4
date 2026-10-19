@@ -457,6 +457,10 @@ class CharacterCreatorDialog(QDialog):
         return {key: inp.value() for key, inp in self.score_inputs.items()}
 
     def update_totals(self, *args):
+        # Identity widgets can emit change signals before the score grid
+        # and build tabs have finished initializing.
+        if len(self.score_inputs) != 6 or len(self.result_labels) != 6:
+            return
         scores = self.final_scores()
         for attr in ABILITIES:
             val = scores[attr]
