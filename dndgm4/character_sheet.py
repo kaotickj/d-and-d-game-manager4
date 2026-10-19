@@ -209,6 +209,12 @@ def build_sheet(*, character: Creature, class_name: str, ranks: dict[str,int],
     if alignment not in ALIGNMENTS:
         raise ValueError("Choose a valid alignment.")
     t = class_specs(class_name, custom_hd, custom_sp)
+    if class_name == "Expert":
+        selected = list(dict.fromkeys(custom_class_skills or []))
+        if len(selected) != 10 or any(name not in SKILLS for name in selected):
+            raise ValueError("Expert must choose exactly 10 distinct supported class skills.")
+        from dataclasses import replace as _replace
+        t = _replace(t,class_skills=tuple(selected))
     budget = skill_budget(class_name, character.intelligence, character.race_type,
                           custom_hd, custom_sp)
     spent = validate_allocations(ranks,t,budget,frozenset(custom_class_skills or []))
