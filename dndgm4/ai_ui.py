@@ -84,6 +84,12 @@ class AIWritingDialog(QDialog):
             "bio": "Player Character Biography",
             "npc_bio": "Nonplayer Character Biography",
             "monster_bio": "Monster Bestiary Biography",
+            "encounter_json": "Random Encounter Designer",
+            "pc_json": "Generate Complete Character Draft",
+            "npc_json": "Generate Complete NPC Draft",
+            "monster_json": "Generate Monster Stat Draft",
+            "campaign_outline": "Long-Form Campaign Architect",
+            "campaign_chapter": "Campaign Chapter Writer",
             "dm": "Dungeon Master's Narrator",
             "names": "AI Name Inspiration",
         }[kind])
@@ -116,7 +122,7 @@ class AIWritingDialog(QDialog):
         for display, path in GGUF_MODELS.items():
             self.preset.addItem(display, str(path))
         self.preset.addItem("Custom GGUF file", "")
-        if kind in ("dm", "bio", "npc_bio", "monster_bio"):
+        if kind not in ("names",):
             self.preset.setCurrentIndex(1)  # Gemma writer is the prose default.
         self.preset.setAccessibleName("Choose Qwen3, Gemma or custom GGUF model")
         self.preset.currentIndexChanged.connect(self._choose_preset)
@@ -263,8 +269,7 @@ class AIWritingDialog(QDialog):
         actions.addWidget(copy)
         actions.addStretch()
         self.use = QPushButton(
-            "Use Draft" if kind in ("bio", "npc_bio", "monster_bio", "names")
-            else "Close"
+            "Use Draft" if kind != "dm" else "Close"
         )
         self.use.clicked.connect(self.accept_draft)
         actions.addWidget(self.use)
@@ -380,7 +385,7 @@ class AIWritingDialog(QDialog):
         self.status.setText("Draft copied to clipboard.")
 
     def accept_draft(self):
-        if self.kind in ("bio", "npc_bio", "monster_bio", "names") and not self.result.toPlainText().strip():
+        if self.kind != "dm" and not self.result.toPlainText().strip():
             QMessageBox.information(self, "Nothing to use", "Write or generate a draft first.")
             return
         self.generated_text = self.result.toPlainText()
