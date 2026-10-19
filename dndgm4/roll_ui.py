@@ -1,10 +1,11 @@
 """Fantasy-styled dice tray and level-one character creator dialogs."""
 from __future__ import annotations
 from dataclasses import replace
+import json
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
     QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
     QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QVBoxLayout,
     QWidget,
@@ -14,7 +15,8 @@ from .creation import (ABILITIES, CORE_CLASSES, RACIAL_ADJUSTMENTS,
                        first_level_hp, first_level_skill_points)
 from .dice import ability_modifier, percentile_answer, roll_dice, roll_expression
 from .name_ui import NamePickerDialog
-from .character_sheet import TEMPLATES, skill_budget
+from .character_sheet import TEMPLATES, NPC_CLASS_TEMPLATES, skill_budget
+from .npc_races import NPC_RACES, NPC_RACE_NAMES
 from .sheet_ui import SheetOptions
 from .ai_ui import AIWritingDialog
 
@@ -143,10 +145,13 @@ class DiceDialog(QDialog):
 class CharacterCreatorDialog(QDialog):
     """Original methods 1/2 with race adjustments and first-level class stats."""
 
-    def __init__(self, parent=None, creature=None):
+    def __init__(self, parent=None, creature=None, kind="pc"):
         super().__init__(parent)
         self.original = creature
-        self.setWindowTitle("The Character Forge | D&D Game Manager 4")
+        self.kind = creature.kind if creature is not None else kind
+        if self.kind not in ("pc", "npc"):
+            raise ValueError("Character Forge supports PCs and NPCs.")
+        self.setWindowTitle(("NPC Forge" if self.kind == "npc" else "The Character Forge") + " | D&D Game Manager 4")
         self.resize(790, 810)
         self.setMinimumSize(650, 590)
         self.result_creature = None
@@ -160,7 +165,10 @@ class CharacterCreatorDialog(QDialog):
         outer.setSpacing(12)
         outer.addWidget(text_label("THE GAME MASTER'S DESK / CHARACTER CREATION", "eyebrow"))
         outer.addWidget(text_label("The Character Forge", "pageTitle"))
-        outer.addWidget(text_label("Level-one character creation using D&D 3.5 core races and classes.", "muted"))
+        outer.addWidget(text_label(
+            "D&D 3.5 level-one NPCs: expanded ancestry and NPC classes, "
+            "manual overrides for unverified races." if self.kind == "npc" else
+            "Level-one character creation using D&D 3.5 core races and classes.", "muted"))
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         sheet = QWidget()
@@ -183,19 +191,55 @@ class CharacterCreatorDialog(QDialog):
         name_row.addWidget(name_button)
         id_form.addRow("Character Name *", name_row)
         self.race = QComboBox()
-        self.race.addItems(RACIAL_ADJUSTMENTS.keys())
-        self.race.setAccessibleName("Player race")
-        self.race.currentIndexChanged.connect(self.update_totals)
+        self.race.addItems(NPC_RACE_NAMES if self.kind == "npc"
+                           else RACIAL_ADJUSTMENTS.keys())
+        if self.kind == "npc":
+            self.race.setEditable(True)
+            self.race.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.race.setAccessibleName("NPC race or species" if self.kind == "npc" else "Player race")
+        self.race.currentTextChanged.connect(self.update_totals)
+        if self.kind == "npc":
+            self.race.currentTextChanged.connect(self.npc_race_changed)
         id_form.addRow("Race", self.race)
         self.character_class = QComboBox()
         self.character_class.addItems(CORE_CLASSES.keys())
         for extra in TEMPLATES:
-            if extra not in CORE_CLASSES:
+            if extra not in CORE_CLASSES and (
+                self.kind == "npc" or extra not in NPC_CLASS_TEMPLATES):
                 self.character_class.addItem(extra)
         self.character_class.addItem("Custom / Homebrew", "__custom__")
         self.character_class.setAccessibleName("Character class")
         self.character_class.currentIndexChanged.connect(self.update_totals)
         id_form.addRow("Class", self.character_class)
+        self.npc_mods = {}
+        if self.kind == "npc":
+            self.character_class.setCurrentText("Warrior")
+            self.npc_size = QComboBox()
+            self.npc_size.addItems(("Fine","Diminutive","Tiny","Small","Medium",
+                                    "Large","Huge","Gargantuan","Colossal"))
+            self.npc_size.currentTextChanged.connect(self.update_totals)
+            id_form.addRow("NPC Size", self.npc_size)
+            modifications = QHBoxLayout()
+            for attribute in ABILITIES:
+                column = QVBoxLayout()
+                column.addWidget(text_label(attribute[:3].upper(), "statName"))
+                control = QSpinBox()
+                control.setRange(-30, 30)
+                control.setPrefix("+" if control.value()>0 else "")
+                control.setAccessibleName(attribute.title()+" racial modifier")
+                control.valueChanged.connect(self.update_totals)
+                column.addWidget(control)
+                modifications.addLayout(column)
+                self.npc_mods[attribute] = control
+            id_form.addRow("Racial score modifiers", modifications)
+            self.npc_race_status = text_label("", "muted", wrap=True)
+            id_form.addRow("Ancestry rules", self.npc_race_status)
+            self.npc_manual_ack = QCheckBox(
+                "Unverified ancestry: I will review racial HD, level adjustment, "
+                "traits and class-based statistics before play."
+            )
+            id_form.addRow("", self.npc_manual_ack)
+            self.npc_race_changed()
         body.addWidget(text_label("Identity and Ancestry", "sectionTitle"))
         body.addWidget(identity)
 
@@ -252,7 +296,7 @@ class CharacterCreatorDialog(QDialog):
         statgrid.setColumnStretch(2, 2)
         body.addWidget(stats)
 
-        self.options = SheetOptions(self.character_class, self.race, self.base_scores)
+        self.options = SheetOptions(self.character_class, self.race, self.final_scores)
         body.addWidget(self.options)
 
         info = QFrame()
@@ -286,6 +330,40 @@ class CharacterCreatorDialog(QDialog):
         if self.original is not None:
             self.load_character(self.original)
 
+    def npc_race_changed(self, *args):
+        if self.kind != "npc" or not self.npc_mods:
+            return
+        profile = NPC_RACES.get(self.race.currentText())
+        for attr,control in self.npc_mods.items():
+            control.blockSignals(True)
+            control.setValue(profile.ability_adjustments.get(attr,0) if profile else 0)
+            control.blockSignals(False)
+        self.npc_size.setCurrentText(profile.size if profile else "Medium")
+        self.npc_manual_ack.setVisible(profile is None)
+        self.npc_manual_ack.setChecked(False)
+        if profile:
+            self.npc_race_status.setText(
+                "SRD-supported ancestry | LA +" + str(profile.level_adjustment) +
+                " | racial HD replaced by class HD. Traits: " +
+                (", ".join(profile.traits) or "Review ancestry special abilities.")
+            )
+        else:
+            self.npc_race_status.setText(
+                "Manual race. The forge builds only one class level; "
+                "racial Hit Dice, level adjustment and special traits are NOT "
+                "calculated. For a creature with 2+ racial HD, use Monster Forge."
+            )
+        self.update_totals()
+
+    def racial_modifiers(self):
+        if self.kind == "npc":
+            return {name:control.value() for name,control in self.npc_mods.items()}
+        return None
+
+    def final_scores(self):
+        return adjusted_scores(self.base_scores(),self.race.currentText(),
+                               self.racial_modifiers())
+
     def load_character(self, creature):
         self.name.setText(creature.name)
         self.race.setCurrentText(creature.race_type)
@@ -294,9 +372,19 @@ class CharacterCreatorDialog(QDialog):
             self.character_class.setCurrentIndex(self.character_class.count()-1)
             self.options.custom_class_name.setText(creature.character_class)
         self.method.setCurrentIndex(2)
-        from .creation import RACIAL_ADJUSTMENTS
+        race_sheet = json.loads(creature.sheet_json) if creature.sheet_json else {}
+        if self.kind == "npc":
+            meta = race_sheet.get("npc_ancestry", {})
+            for attr, control in self.npc_mods.items():
+                control.setValue(meta.get("modifiers",{}).get(
+                    attr, NPC_RACES.get(creature.race_type,
+                                        NPC_RACES["Human"]).ability_adjustments.get(attr,0)))
+            self.npc_size.setCurrentText(meta.get("size","Medium"))
+            if creature.race_type not in NPC_RACES:
+                self.npc_manual_ack.setChecked(True)
         for attr, field in self.score_inputs.items():
-            modifier=RACIAL_ADJUSTMENTS.get(creature.race_type,{}).get(attr,0)
+            modifier=(self.racial_modifiers() or
+                      RACIAL_ADJUSTMENTS.get(creature.race_type,{})).get(attr,0)
             field.setValue(min(18,max(3,getattr(creature,attr)-modifier)))
         self.notes.setPlainText(creature.notes)
         self.options.load_existing(creature)
@@ -321,7 +409,7 @@ class CharacterCreatorDialog(QDialog):
         picker = NamePickerDialog(race=self.race.currentText(), monster=False, parent=self)
         if picker.exec() == QDialog.DialogCode.Accepted and picker.selected_name:
             self.name.setText(picker.selected_name)
-            if picker.race.currentText() in RACIAL_ADJUSTMENTS:
+            if picker.race.currentText() in (NPC_RACE_NAMES if self.kind=="npc" else RACIAL_ADJUSTMENTS):
                 self.race.setCurrentText(picker.race.currentText())
             else:
                 self.message.setText("Name applied. Expanded-race mechanics are not yet implemented; "
@@ -369,7 +457,7 @@ class CharacterCreatorDialog(QDialog):
         return {key: inp.value() for key, inp in self.score_inputs.items()}
 
     def update_totals(self, *args):
-        scores = adjusted_scores(self.base_scores(), self.race.currentText())
+        scores = self.final_scores()
         for attr in ABILITIES:
             val = scores[attr]
             self.result_labels[attr].setText(f"{val}  ({ability_modifier(val):+d})")
@@ -390,7 +478,7 @@ class CharacterCreatorDialog(QDialog):
             hp=first_level_hp(self.character_class.currentText(),scores["constitution"])
             skills=first_level_skill_points(self.character_class.currentText(),
                                              scores["intelligence"],self.race.currentText())
-        size = "Small (+1 AC)" if self.race.currentText() in ("Gnome", "Halfling") else "Medium"
+        size = self.npc_size.currentText() if self.kind == "npc" else ("Small (+1 AC)" if self.race.currentText() in ("Gnome", "Halfling") else "Medium")
         self.summary.setText(
             f"Maximum starting HP: {hp}    •    Unassigned skill points: {skills}\n"
             f"Size: {size}    •    Ability modifiers and racial bonuses applied.\n"
@@ -408,6 +496,9 @@ class CharacterCreatorDialog(QDialog):
             if not class_name:
                 raise ValueError("Enter a name for the custom class.")
             template = self.options.spec()
+            if self.kind == "npc" and (self.race.currentText() not in NPC_RACES
+                                       and not self.npc_manual_ack.isChecked()):
+                raise ValueError("Confirm manual ancestry review before saving an unverified NPC race.")
             created = build_character(
                 name=self.name.text(), race=self.race.currentText(),
                 character_class=class_name,
@@ -419,8 +510,25 @@ class CharacterCreatorDialog(QDialog):
                 reroll_notes=self.session.reroll_notes,
                 notes=self.notes.toPlainText(),
                 custom_hit_die=template.hit_die, custom_skill_points=template.skill_points,
+                kind=self.kind, racial_override=self.racial_modifiers(),
+                size_override=self.npc_size.currentText() if self.kind=="npc" else None,
             )
             created=self.options.finish(created)
+            if self.kind == "npc":
+                metadata=json.loads(created.sheet_json)
+                profile=NPC_RACES.get(self.race.currentText())
+                metadata["npc_ancestry"] = {
+                    "race":self.race.currentText(),
+                    "modifiers":self.racial_modifiers(),
+                    "size":self.npc_size.currentText(),
+                    "level_adjustment": profile.level_adjustment if profile else None,
+                    "racial_hit_dice": profile.racial_hit_dice if profile else None,
+                    "verified_profile":profile is not None,
+                    "traits":list(profile.traits) if profile else [],
+                    "manual_review_required":profile is None,
+                }
+                created=replace(created,sheet_json=json.dumps(metadata,sort_keys=True))
+            
             if self.original is not None:
                 created=replace(created,id=self.original.id,
                                 archived=self.original.archived,
