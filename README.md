@@ -276,3 +276,13 @@ seconds including loading overhead. CPU threading can help inference but
 does not promise a specific acceleration factor. A compatible GPU-enabled
 llama.cpp build may offer a larger speed improvement than more CPU threads,
 especially for the Gemma 9B model.
+
+
+## v0.6.2: 30-pixel window and sidebar adjustment
+
+The default main window is **1410 × 840** (previously 1380 × 840).
+The left navigation pane is **276 pixels** wide (previously 246).
+The minimum main window width is **830 pixels** (previously 800),
+so the workspace retains its previous minimum space. Sidebar labels and
+buttons are not renamed or removed. The original hero banner and
+square ability-score tiles remain unchanged.
