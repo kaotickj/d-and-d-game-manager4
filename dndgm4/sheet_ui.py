@@ -20,7 +20,7 @@ from .character_sheet import (
     class_specs, skill_budget, validate_allocations, load_sheet
 )
 from .spell_rules import CASTERS, SPELL_LISTS, default_spellbook, spell_profile, validate_spellbook
-from .build_rules import inventory_from_text, inventory_to_text
+from .build_rules import inventory_from_text, inventory_to_text, feat_review
 
 FIRST_LEVEL_FEATURES = {
     "Barbarian": ("Rage 1/day", "Fast movement"),
@@ -340,7 +340,24 @@ class SheetOptions(QWidget):
         t=self.spec()
         mode=self.build_mode.currentIndex()
         if mode==0:
-            self.feats.setPlainText("\n".join(t.suggested_feats))
+            # Avoid starting a level-one Fighter at STR 10 with illegal
+            # Power Attack/Cleave. Retain the desired preset if legal;
+            # otherwise use broadly available SRD first-level feats.
+            chosen=list(t.suggested_feats)
+            score=self.scores_provider()
+            if self.current_class() in TEMPLATES and not t.supplement:
+                try:
+                    issues=feat_review(chosen,score,
+                        class_name=self.current_class(),
+                        race=self.race_picker.currentText(),
+                        bab=1 if self.current_class() in
+                            ("Fighter","Barbarian","Ranger","Paladin") else 0,
+                        strict=True)
+                    if issues:raise ValueError("; ".join(issues))
+                except ValueError:
+                    candidates=("Improved Initiative","Toughness","Alertness")
+                    chosen=list(candidates[:max(1,len(chosen))])
+            self.feats.setPlainText("\n".join(chosen))
             self.equipment.setPlainText("\n".join(t.suggested_equipment))
             self.spells.setPlainText(t.spellcasting_note)
             self.features.setPlainText("\n".join(FIRST_LEVEL_FEATURES.get(
