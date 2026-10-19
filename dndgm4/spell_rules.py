@@ -144,7 +144,8 @@ def default_spellbook(class_name: str, scores: dict[str,int]) -> dict:
         data["prepared"]["1"]=list(starter[1])[:profile["slots"]["1"]]
     elif profile["mode"]=="spontaneous":
         data["known"]["0"]=list(starter[0])[:profile["limits"]["0"]]
-        data["known"]["1"]=list(starter[1])[:profile["limits"]["1"]]
+        data["known"]["1"]=(list(starter[1])[:profile["limits"]["1"]]
+                               if profile["slots"]["1"] else [])
     else:
         data["prepared"]["0"]=list(starter[0])[:profile["slots"]["0"]]
         data["prepared"]["1"]=list(starter[1])[:profile["slots"]["1"]]
