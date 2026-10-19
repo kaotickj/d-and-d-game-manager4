@@ -351,3 +351,49 @@ Regression coverage includes single-use launch arguments, no cached model,
 cleanup on errors, and Windows GUI tests to assert that the main window
 remains visible after the Scribe is closed. The v0.6.1 Performance settings
 and warm-model instructions above are **superseded** by this rollback.
+
+## v0.6.5: Select several records for a scenario or The Scribe
+
+The **All Records** table now supports standard Ctrl-click, Shift-click and
+Ctrl+A selection. Select PCs, NPCs and monsters together, without needing to
+create duplicate records. Multiple selected rows cannot accidentally trigger
+single-record Edit, Duplicate or Archive actions.
+
+Under Records:
+* **Load Selection into Scribe:** sends all explicitly selected records to
+  the existing narrator, including their saved ability scores, class, levels,
+  feats, skills, equipment, spells, backgrounds, monster HD, special abilities,
+  ecology, lore, and DM notes when present. The source is each record's full
+  SQLite data and decoded structured sheet JSON. Already-open Scribe windows
+  receive the new prompt when you explicitly select this action.
+* **Add Selected to Scene:** saves each selected record into the current
+  scenario roster without duplicates. You can add PCs from the PC tab, NPCs
+  from NPCs and monsters from Bestiary, then use All Records to review them.
+* **Edit Scene:** defines the actual people and creatures present alongside
+  scene title, location, conditions, scenery, named settlements/inns/taverns
+  and campaign continuity. The roster is editable with checkboxes.
+* **Load Scene into Scribe:** sends the saved scene plus the complete sheets
+  of explicitly included members. Archived/missing roster members trigger
+  an actionable error rather than being silently omitted.
+
+The active scene persists atomically as current_scene.json beside the user's
+existing local library.sqlite3; no schema migration is required. The full
+creature library is **not** assumed to be present at an encounter by default.
+The Scribe still uses local Gemma/Qwen3 GGUF inference only. AI narration does
+not modify game statistics, creature saves or the database.
+
+**Context size matters:** the current lightweight local inference mode accepts
+at most 6,000 input characters. If all selected character sheets cannot fit,
+the application shows a precise error and asks you to reduce the number of
+records or shorten scene notes, rather than quietly truncating important
+character or monster fields. This is a foundation for future multi-pass
+context retrieval and persistent campaigns.
+
+**Windows reliability:** each major child dialog is marked not to quit
+the main app when closed. The startup icon loader gracefully survives a
+missing asset, and the Windows installer workflow now verifies that the
+PyInstaller package contains dragon_crest.png, app_banner.jpg and
+name_genie_crest.png before publishing. The original fantasy artwork and
+ability-score layouts are otherwise untouched. The previous v0.6.4
+one-request GGUF backend remains unchanged; the multithreading discussion
+will be handled separately after measuring actual memory usage.
