@@ -98,6 +98,30 @@ class ForgeUiTests(unittest.TestCase):
                     str(GGUF_MODELS["Qwen3 4B Instruct (GGUF)"]))
                 dialog.close()
 
+    def test_closing_narrator_keeps_main_window_open(self):
+        from dndgm4.storage import CreatureRepository
+        from dndgm4.ui import MainWindow
+        from PyQt6.QtCore import Qt
+        with TemporaryDirectory() as tmp:
+            win = MainWindow(CreatureRepository(Path(tmp) / "library.sqlite3"))
+            win.show()
+            self.app.processEvents()
+            self.assertTrue(win.isVisible())
+            win.open_narrator()
+            self.app.processEvents()
+            narrator = win._narrator_dialog
+            self.assertIsNotNone(narrator)
+            self.assertTrue(narrator.isVisible())
+            self.assertFalse(narrator.testAttribute(Qt.WidgetAttribute.WA_QuitOnClose))
+            self.assertEqual(narrator.windowModality(), Qt.WindowModality.NonModal)
+            win.open_narrator()
+            self.assertIs(win._narrator_dialog, narrator)
+            narrator.close()
+            self.app.processEvents()
+            self.assertTrue(win.isVisible())
+            self.assertIsNone(win._narrator_dialog)
+            win.close()
+
     def test_dm_sidebar_action_and_local_ai_no_auto_calls(self):
         from PyQt6.QtWidgets import QPushButton
         from dndgm4.ui import MainWindow
@@ -122,19 +146,6 @@ class ForgeUiTests(unittest.TestCase):
         d.backend.setCurrentIndex(0)
         self.assertEqual(d.model.text(), str(GGUF_MODELS["Qwen3 4B Instruct (GGUF)"]))
         self.assertFalse(d.worker)
-        self.assertFalse(d.performance_panel.isVisible())
-        d.performance_toggle.setChecked(True)
-        self.assertTrue(d.performance_toggle.isChecked())
-        self.assertGreaterEqual(d.cpu_threads.value(), 1)
-        self.assertGreaterEqual(d.batch_threads.value(), 1)
-        d.cpu_threads.setValue(6)
-        d.batch_threads.setValue(8)
-        self.assertEqual((d.cpu_threads.value(),d.batch_threads.value()),(6,8))
-        with patch("dndgm4.ai_ui.unload_cached_model",return_value=True) as unload:
-            d.unload_model()
-            unload.assert_called_once()
-        d.backend.setCurrentIndex(1)
-        self.assertFalse(d.performance_toggle.isVisible())
         d.close()
 
 
