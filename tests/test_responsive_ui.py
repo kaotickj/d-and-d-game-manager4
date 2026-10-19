@@ -16,6 +16,30 @@ class ResponsiveLayoutTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         apply_theme(cls.app)
 
+    def test_default_window_and_sidebar_gain_equal_thirty_pixels(self):
+        from PyQt6.QtWidgets import QScrollArea, QPushButton
+        from dndgm4.storage import CreatureRepository
+        from dndgm4.ui import MainWindow
+        with TemporaryDirectory() as folder:
+            window = MainWindow(CreatureRepository(Path(folder) / "sidebar.sqlite3"))
+            window.show()
+            self.app.processEvents()
+            self.assertEqual(window.width(), 1410)
+            self.assertEqual(window.height(), 840)
+            self.assertEqual(window.minimumWidth(), 830)
+            sidebar = window.findChild(QScrollArea, "sidebarScroll")
+            self.assertIsNotNone(sidebar)
+            self.assertEqual(sidebar.width(), 276)
+            # The existing controls stay in the sidebar and keep their labels.
+            button_labels = {widget.text() for widget in
+                             sidebar.findChildren(QPushButton)}
+            for label in ("Nonplayer Characters",
+                          "RPG NAME GENIE  /  Generate Names",
+                          "The Scribe  /  DM Narration", "+  New Monster"):
+                self.assertIn(label, button_labels)
+            self.assertEqual(window.hero_banner.height(), 166)
+            window.close()
+
     def test_classic_banner_fills_its_original_fixed_height(self):
         from dndgm4.artwork import CoverArtLabel
         banner = CoverArtLabel("app_banner.jpg", height=166)

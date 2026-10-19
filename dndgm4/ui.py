@@ -239,9 +239,10 @@ class MainWindow(QMainWindow):
         self.active_kind = None
         self.setWindowTitle(f"Dungeons & Dragons Game Manager 4 · {__version__} · The Compendium")
         self.setWindowIcon(window_icon())
-        self.resize(1380, 840)
-        # Retain the original desktop presentation, but permit compact windows.
-        self.setMinimumSize(800, 540)
+        # Add 30 px of room for the wider navigation without narrowing the workspace.
+        self.resize(1410, 840)
+        # Keep the same compact workspace width when the window is minimized in size.
+        self.setMinimumSize(830, 540)
         self._splitter_layout = None
         central = QWidget()
         self.setCentralWidget(central)
@@ -277,11 +278,11 @@ class MainWindow(QMainWindow):
     def setup_sidebar(self, shell):
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        # The classic sidebar proportions are unchanged at desktop sizes.
-        # A scroller only prevents control clipping on shorter laptop screens.
+        # Give long navigation labels 30 px more horizontal room.
+        # The scroll area still protects controls on shorter laptop screens.
         sidebar_scroll = QScrollArea()
         sidebar_scroll.setObjectName("sidebarScroll")
-        sidebar_scroll.setFixedWidth(246)
+        sidebar_scroll.setFixedWidth(276)
         sidebar_scroll.setFrameShape(QFrame.Shape.NoFrame)
         sidebar_scroll.setWidgetResizable(True)
         sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
