@@ -104,6 +104,8 @@ class AIWritingDialog(QDialog):
         for display, path in GGUF_MODELS.items():
             self.preset.addItem(display, str(path))
         self.preset.addItem("Custom GGUF file", "")
+        if kind in ("dm", "bio"):
+            self.preset.setCurrentIndex(1)  # Gemma writer is the prose default.
         self.preset.setAccessibleName("Choose Qwen3, Gemma or custom GGUF model")
         self.preset.currentIndexChanged.connect(self._choose_preset)
         preset_line.addWidget(self.preset, 1)
