@@ -30,6 +30,20 @@ class FantasyArtworkTests(unittest.TestCase):
         self.assertTrue(files("dndgm4").joinpath("assets", "app_icon.ico").is_file())
         self.assertFalse(window_icon().isNull())
 
+    def test_missing_installed_crest_gracefully_falls_back(self):
+        from unittest.mock import patch
+        from dndgm4.artwork import load_artwork, window_icon
+        load_artwork.cache_clear()
+        try:
+            with patch("dndgm4.artwork.files") as resources:
+                resources.return_value.joinpath.return_value.read_bytes.side_effect = FileNotFoundError(
+                    "Missing installed dragon_crest.png"
+                )
+                self.assertTrue(load_artwork("dragon_crest.png").isNull())
+                self.assertTrue(window_icon().isNull())
+        finally:
+            load_artwork.cache_clear()
+
     def test_main_banner_and_sidebar_only_name_genie(self):
         from PyQt6.QtWidgets import QPushButton
         from dndgm4.storage import CreatureRepository

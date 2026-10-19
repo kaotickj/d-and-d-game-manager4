@@ -35,6 +35,7 @@ class DiceDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.setWindowTitle("The Dice Eliminator | D&D Game Manager 4")
         self.resize(760, 700)
         self.setMinimumSize(580, 520)
@@ -147,6 +148,7 @@ class CharacterCreatorDialog(QDialog):
 
     def __init__(self, parent=None, creature=None, kind="pc"):
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.original = creature
         self.kind = creature.kind if creature is not None else kind
         if self.kind not in ("pc", "npc"):

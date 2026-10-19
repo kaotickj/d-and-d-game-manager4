@@ -1,7 +1,7 @@
 """PyQt6 application for permanent character/NPC/monster library records."""
 from dataclasses import replace
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QItemSelectionModel
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QButtonGroup, QCheckBox, QDialog, QFormLayout, QFrame, QGridLayout,
@@ -18,6 +18,8 @@ from .name_ui import NamePickerDialog
 from .roll_ui import CharacterCreatorDialog, DiceDialog
 from .monster_ui import MonsterCreatorDialog
 from .ai_ui import AIWritingDialog
+from .scene_ui import SceneDialog
+from .scene_context import SceneStore, blank_scene, add_records, build_scribe_context
 
 
 ABILITIES = (("strength", "STR"), ("dexterity", "DEX"), ("constitution", "CON"),
@@ -98,6 +100,7 @@ class CreatureEditor(QDialog):
 
     def __init__(self, creature: Creature, parent=None):
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.original = creature
         self.result_creature = None
         title = "Edit Record" if creature.id else "Create Record"
@@ -236,6 +239,14 @@ class MainWindow(QMainWindow):
     def __init__(self, library: CreatureRepository):
         super().__init__()
         self.library = library
+        self.scene_store = SceneStore(library.path)
+        self._scene_error = ""
+        try:
+            self.scene = self.scene_store.load()
+        except (ValueError, OSError) as exc:
+            # Leave a damaged scene file intact. Do not crash the entire app.
+            self.scene = blank_scene()
+            self._scene_error = str(exc)
         self.active_kind = None
         self.setWindowTitle(f"Dungeons & Dragons Game Manager 4 · {__version__} · The Compendium")
         self.setWindowIcon(window_icon())
@@ -426,7 +437,7 @@ class MainWindow(QMainWindow):
         self.table.setWordWrap(False)
         self.table.verticalHeader().setDefaultSectionSize(45)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setHighlightSections(False)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -436,7 +447,26 @@ class MainWindow(QMainWindow):
         self.table.itemSelectionChanged.connect(self.update_preview)
         self.table.doubleClicked.connect(self.edit)
         pane.addWidget(self.table, 1)
-        pane.addWidget(caption("Double-click a record to edit. All changes save locally.", "muted"))
+        pane.addWidget(caption(
+            "Ctrl-click / Shift-click to select several records. "
+            "Use All Records to mix PCs, NPCs and monsters.", "muted", wrap=True
+        ))
+        selection_actions = QHBoxLayout()
+        self.add_scene_button = action("Add Selected to Scene", self.add_selection_to_scene)
+        self.add_scene_button.setAccessibleName("Add all selected records to the current scene")
+        selection_actions.addWidget(self.add_scene_button)
+        self.load_selected_button = action("Load Selection into Scribe",
+                                           self.load_selection_to_scribe)
+        self.load_selected_button.setAccessibleName("Send full selected records to the local Scribe")
+        selection_actions.addWidget(self.load_selected_button)
+        pane.addLayout(selection_actions)
+        scene_actions = QHBoxLayout()
+        self.edit_scene_button = action("Edit Scene", self.edit_scene)
+        scene_actions.addWidget(self.edit_scene_button)
+        self.load_scene_button = action("Load Scene into Scribe",
+                                        self.load_scene_to_scribe)
+        scene_actions.addWidget(self.load_scene_button)
+        pane.addLayout(scene_actions)
         splitter.addWidget(records_panel)
 
         preview = QFrame()
@@ -535,7 +565,8 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def refresh(self, *args, select_id=None):
-        previous_id = select_id if select_id is not None else self._selected_id()
+        previous_ids = ({select_id} if select_id is not None else
+                        set(self._selected_ids()))
         records = self.library.list(
             kind=self.active_kind,
             query=self.search.text(),
@@ -559,11 +590,13 @@ class MainWindow(QMainWindow):
                     item.setToolTip(value)
                     self.table.setItem(row, col, item)
             self.table.clearSelection()
-            if previous_id:
-                for row in range(self.table.rowCount()):
-                    if self.table.item(row, 0).data(Qt.ItemDataRole.UserRole) == previous_id:
-                        self.table.selectRow(row)
-                        break
+            for row in range(self.table.rowCount()):
+                if self.table.item(row, 0).data(Qt.ItemDataRole.UserRole) in previous_ids:
+                    self.table.selectionModel().select(
+                        self.table.model().index(row, 0),
+                        QItemSelectionModel.SelectionFlag.Select |
+                        QItemSelectionModel.SelectionFlag.Rows
+                    )
         finally:
             self.table.blockSignals(False)
         self.result_summary.setText(f"{len(records)} records")
@@ -575,21 +608,47 @@ class MainWindow(QMainWindow):
         self.metrics["archived"].setText(str(sum(r.archived for r in all_records)))
         self.update_preview()
 
+    def _selected_ids(self):
+        selected = sorted(
+            self.table.selectionModel().selectedRows(),
+            key=lambda index: index.row()
+        )
+        return [self.table.item(idx.row(), 0).data(Qt.ItemDataRole.UserRole)
+                for idx in selected if self.table.item(idx.row(), 0)]
+
     def _selected_id(self):
-        selected_rows = self.table.selectionModel().selectedRows()
-        if not selected_rows:
-            return None
-        item = self.table.item(selected_rows[0].row(), 0)
-        return item.data(Qt.ItemDataRole.UserRole) if item else None
+        ids = self._selected_ids()
+        return ids[0] if len(ids) == 1 else None
 
     def selected(self):
-        selected_id = self._selected_id()
-        return self.library.get(selected_id) if selected_id else None
+        record_id = self._selected_id()
+        return self.library.get(record_id) if record_id else None
+
+    def selected_records(self):
+        return [record for record_id in self._selected_ids()
+                if (record := self.library.get(record_id)) is not None]
 
     def update_preview(self):
-        record = self.selected()
+        selection = self.selected_records()
+        record = selection[0] if len(selection) == 1 else None
         for control in (self.edit_button, self.duplicate_button, self.archive_button):
             control.setEnabled(record is not None)
+        self.add_scene_button.setEnabled(bool(selection))
+        self.load_selected_button.setEnabled(bool(selection))
+        if len(selection) > 1:
+            self.preview_title.setText(f"{len(selection)} records selected")
+            self.preview_sub.setText(
+                "Selection includes PCs, NPCs or monsters. Load the complete "
+                "record sheets into The Scribe or add them to the current scene."
+            )
+            self.detail.setText("\n".join(
+                f"{c.name}  ·  {KIND_LABELS[c.kind]}" for c in selection
+            ))
+            self.notes_preview.clear()
+            for score in self.stat_values.values():
+                score.setText("—")
+            self.archive_button.setText("Archive")
+            return
         if record is None:
             self.preview_title.setText("Choose a record")
             self.preview_sub.setText("Select an entry to inspect its details.")
@@ -663,31 +722,101 @@ class MainWindow(QMainWindow):
         dialog = NamePickerDialog(race="Human", standalone=True, parent=self)
         dialog.exec()
 
-    def open_narrator(self):
-        """Show Scribe independently of the main compendium window.
+    def _check_scene(self):
+        if self._scene_error:
+            raise ValueError(
+                "Saved scene could not be read. Please back up or repair "
+                "current_scene.json before changing it. " + self._scene_error
+            )
 
-        Keeping a strong reference and using show() (not a nested exec()
-        event loop) prevents dialog shutdown from closing the main app.
-        """
+    def add_selection_to_scene(self):
+        try:
+            self._check_scene()
+            records = self.selected_records()
+            if not records:
+                raise ValueError("Select one or more library records first.")
+            updated = add_records(self.scene, [r.id for r in records])
+            self.scene_store.save(updated)
+            self.scene = updated
+            self.statusBar().showMessage(
+                f"Added {len(records)} record(s) to scene. "
+                f"Scene roster: {len(self.scene['record_ids'])}."
+            )
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "Unable to update scene", str(exc))
+
+    def edit_scene(self):
+        try:
+            self._check_scene()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Scene file needs review", str(exc))
+            return
+        editor = SceneDialog(self.scene, self.library.list(), self)
+        if editor.exec() == QDialog.DialogCode.Accepted:
+            try:
+                self.scene_store.save(editor.result_scene)
+            except (ValueError, OSError) as exc:
+                QMessageBox.warning(self, "Scene not saved", str(exc))
+                return
+            self.scene = editor.result_scene
+            self.statusBar().showMessage("Current scene saved locally.")
+
+    def _scribe_scene_context(self, source):
+        self._check_scene()
+        if source == "selection":
+            records = self.selected_records()
+            if not records:
+                raise ValueError("Select at least one record first.")
+        elif source == "scene":
+            index = {c.id: c for c in self.library.list()}
+            missing = [key for key in self.scene["record_ids"] if key not in index]
+            if missing:
+                raise ValueError(
+                    f"{len(missing)} scene record(s) are missing or archived. "
+                    "Edit Scene to revise the roster before loading into Scribe."
+                )
+            records = [index[key] for key in self.scene["record_ids"]]
+        else:
+            raise ValueError("Unknown Scribe context source.")
+        return build_scribe_context(self.scene, records, mode=source)
+
+    def _show_scribe_context(self, source):
+        try:
+            context = self._scribe_scene_context(source)
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "Cannot load full Scribe context", str(exc))
+            return
         existing = getattr(self, "_narrator_dialog", None)
         if existing is not None:
-            # Reuse even a previously closed dialog. Qt can be in the middle
-            # of dispatching its finished/close event; never drop the final
-            # reference from that callback.
+            # Explicit Load means replace the context, not the generated
+            # draft. The draft is always editable and remains intact.
+            existing.context.setPlainText(context)
             existing.show()
             existing.raise_()
             existing.activateWindow()
             return
-        record = self.selected()
-        context = (f"Scene features {record.name}, a {record.race_type} {record.character_class}. "
-                   f"Notes: {record.notes[:900]}" if record else "")
         writer = AIWritingDialog("dm", context, self)
         writer.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         writer.setWindowModality(Qt.WindowModality.NonModal)
         self._narrator_dialog = writer
-        # Keep a strong reference until MainWindow is itself destroyed.
-        # Do not dereference the child from its own 'finished' signal.
         writer.show()
+
+    def load_selection_to_scribe(self):
+        self._show_scribe_context("selection")
+
+    def load_scene_to_scribe(self):
+        self._show_scribe_context("scene")
+
+    def open_narrator(self):
+        """Open Scribe using explicit selection if present, otherwise the scene."""
+        existing = getattr(self, "_narrator_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return
+        self._show_scribe_context(
+            "selection" if self._selected_ids() else "scene"
+        )
 
     def open_dice(self):
         dialog = DiceDialog(self)
