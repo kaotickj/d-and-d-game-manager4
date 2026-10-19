@@ -397,3 +397,66 @@ name_genie_crest.png before publishing. The original fantasy artwork and
 ability-score layouts are otherwise untouched. The previous v0.6.4
 one-request GGUF backend remains unchanged; the multithreading discussion
 will be handled separately after measuring actual memory usage.
+
+
+## v0.7.0: Character Forge three-route foundation, spellbooks and inventory
+
+The **first-level** PC/NPC Character Forge now begins with three user-facing
+creation routes:
+1. **Class Default**, with editable SRD-inspired class/race starting presets
+   for legal first-level spellbooks, feats, skills, special abilities,
+   equipment and starter inventory. Starter feats that fail implemented
+   prerequisites fall back to universal alternatives.
+2. **AI Generated**, using the existing local Gemma Writer or Qwen3 GGUF model
+   via The Scribe. The model proposes a complete structured first-level build
+   (base abilities, class, race, skills, feats, gear, inventory, spellbook and
+   biography). The app *never* imports the JSON directly as game mechanics:
+   `ai_character.py` validates record type, selected race/class, six base
+   scores, skill spending, encoded feat prerequisites/count and spell lists.
+   Invalid AI JSON or rules are rejected and the unsaved character remains
+   unchanged; valid selections populate the **editable** Forge.
+3. **Custom Guided**, a seven-step navigation sequence covering identity,
+   ability-score rolling/manual input, feats/class abilities, allocated skills,
+   spells and spellbooks, inventory, and story/review. It uses deterministic
+   skill, spell and encoded feat validation at save. It is a structured
+   interface to the existing Forge, not a wholesale replacement of its GUI.
+
+New **Spells & Spellbook** tab: a curated first-level D&D 3.5 SRD list for
+Wizard, Sorcerer, Cleric, Druid, Bard and NPC Adept. Spell lists separate
+spontaneous *spells known* from prepared daily spells and the Wizard's
+permanent spellbook. Core first-level spell slots and bonus slots come from
+the class and casting ability. A Wizard's starting book includes all
+0-level wizard spells and **3 + INT modifier** first-level spells; daily
+prepared spells are validated against that book. Clerics have an additional
+first-level domain slot separate from ordinary prepared spell slots.
+Wizard specialization, prohibited schools and cleric domains are stored,
+with manual rules review required until the full specialization/domain spell
+catalog is implemented. Other base and supplemental classes do not receive
+invented first-level spellcasting.
+
+New **Inventory** tab: persistent quantity-aware carrying list with
+`3 x Torch` notation. Inventory, spells known/prepared, spellbook and
+class feature suggestions are stored as structured JSON in the existing
+`sheet_json` field, no SQLite migration required. Existing records
+and the historic freeform spell notes remain readable/editable.
+
+**Scope and remaining work:** This milestone is a rules-checked first-level
+foundation, NOT complete PHB/expanded-book character generation. We still
+need exhaustive SRD feat and spell tables/descriptions/prerequisites,
+cleric domain restrictions, wizard specialization rules, selection of
+alternative class features, full class-based leveling to 20, multiclass
+levels, equipment costs/weight/encumbrance/proficiencies, and wealth-by-level
+options. Supplemental classes remain editable DM-reviewed templates.
+Unverified feat prerequisites and unusual spells are never silently
+certified as valid. Automated tests cover core spell limits, class
+compatibility, feat prerequisites, data persistence, all three GUI modes
+and AI proposal validation. The existing one-shot local GGUF inference
+engine, artwork, windows, scene-loading workflow and record layout are
+preserved unchanged.
+
+Open Game Content rules reference: 3.5 SRD class/spell/feat pages at
+https://www.d20srd.org/srd/classes/sorcererWizard.htm ,
+https://www.d20srd.org/srd/classes/bard.htm ,
+https://www.d20srd.org/srd/classes/cleric ,
+https://www.d20srd.org/srd/classes/druid.htm ,
+https://www.d20srd.org/srd/feats.htm
