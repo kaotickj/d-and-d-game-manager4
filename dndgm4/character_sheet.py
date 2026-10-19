@@ -112,6 +112,30 @@ for _name, (_hd, _sp, _skills, _favored) in _EXTRA_CLASS_DATA.items():
         extra=True)
 SKILLS = tuple(dict.fromkeys(SKILLS + ("Autohypnosis", "Knowledge (psionics)", "Psicraft")))
 
+# NPC base classes from the 3.5 SRD. Expert chooses 10 class skills,
+# entered by the DM through the additional-class-skills field.
+NPC_CLASS_TEMPLATES = {
+    "Adept": spec(6,2,
+      "Concentration|Craft|Handle Animal|Heal|Profession|Spellcraft|Survival|"+"|".join(K_ALL),
+      "Concentration|Heal|Spellcraft", "Alertness", "Quarterstaff|Common clothes",
+      "Divine adept; spell selection remains manual."),
+    "Aristocrat": spec(8,4,
+      "Appraise|Bluff|Diplomacy|Disguise|Forgery|Gather Information|Handle Animal|Intimidate|Listen|Perform|Ride|Sense Motive|Speak Language|Spot|Swim|Survival|"+"|".join(K_ALL),
+      "Diplomacy|Sense Motive|Bluff|Ride", "Skill Focus", "Fine clothing|Rapier"),
+    "Commoner": spec(4,2,
+      "Climb|Craft|Handle Animal|Jump|Listen|Profession|Ride|Spot|Swim|Use Rope",
+      "Profession|Craft|Listen", "Skill Focus", "Work clothing|Simple tool"),
+    "Expert": spec(6,6,
+      "Craft|Profession|Appraise|Diplomacy|Knowledge (local)|Search|Spot|Listen|Use Rope|Heal",
+      "Craft|Profession|Appraise|Search", "Skill Focus", "Professional tools",
+      "Choose exactly 10 class skills; edit the class-skill selections manually."),
+    "Warrior": spec(8,2,
+      "Climb|Craft|Handle Animal|Intimidate|Jump|Ride|Swim",
+      "Climb|Intimidate|Ride", "Power Attack", "Longsword|Chainmail|Shield"),
+}
+TEMPLATES.update(NPC_CLASS_TEMPLATES)
+
+
 DEFAULT_FEATS = ("Alertness","Blind-Fight","Combat Casting","Combat Expertise",
                  "Dodge","Endurance","Improved Initiative","Iron Will",
                  "Lightning Reflexes","Point Blank Shot","Power Attack",
@@ -185,6 +209,12 @@ def build_sheet(*, character: Creature, class_name: str, ranks: dict[str,int],
     if alignment not in ALIGNMENTS:
         raise ValueError("Choose a valid alignment.")
     t = class_specs(class_name, custom_hd, custom_sp)
+    if class_name == "Expert":
+        selected = list(dict.fromkeys(custom_class_skills or []))
+        if len(selected) != 10 or any(name not in SKILLS for name in selected):
+            raise ValueError("Expert must choose exactly 10 distinct supported class skills.")
+        from dataclasses import replace as _replace
+        t = _replace(t,class_skills=tuple(selected))
     budget = skill_budget(class_name, character.intelligence, character.race_type,
                           custom_hd, custom_sp)
     spent = validate_allocations(ranks,t,budget,frozenset(custom_class_skills or []))

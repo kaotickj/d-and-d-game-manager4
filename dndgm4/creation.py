@@ -35,14 +35,20 @@ CORE_CLASSES = {
 SMALL_RACES = frozenset({"Gnome", "Halfling"})
 
 
-def adjusted_scores(base: dict[str, int], race: str) -> dict[str, int]:
-    if race not in RACIAL_ADJUSTMENTS:
+def adjusted_scores(base: dict[str, int], race: str,
+                    racial_override: dict[str,int] | None = None) -> dict[str, int]:
+    if race not in RACIAL_ADJUSTMENTS and racial_override is None:
         raise ValueError("Unknown player race.")
+    changes = (RACIAL_ADJUSTMENTS[race] if racial_override is None
+               else racial_override)
+    if any(key not in ABILITIES or not isinstance(v,int) or
+           not -30 <= v <= 30 for key,v in changes.items()):
+        raise ValueError("Racial ability modifiers must be -30..30.")
     if set(base) != set(ABILITIES):
         raise ValueError("All six ability scores are required.")
     result = {}
     for ability in ABILITIES:
-        score = base[ability] + RACIAL_ADJUSTMENTS[race].get(ability, 0)
+        score = base[ability] + changes.get(ability, 0)
         # The 3.5 half-orc racial minimum for INT is 3.
         if race == "Half-orc" and ability == "intelligence":
             score = max(3, score)
@@ -107,12 +113,19 @@ def build_character(*, name: str, race: str, character_class: str,
                     rolls: list[DiceResult] | None = None,
                     reroll_notes: list[str] | None = None,
                     notes: str = "", custom_hit_die: int | None = None,
-                    custom_skill_points: int | None = None) -> Creature:
+                    custom_skill_points: int | None = None,
+                    kind: str = "pc",
+                    racial_override: dict[str,int] | None = None,
+                    size_override: str | None = None) -> Creature:
     """Create a level-one PC ready for the existing SQLite library."""
     if not name.strip():
         raise ValueError("Character name is required.")
-    if race not in RACIAL_ADJUSTMENTS:
-        raise ValueError("Choose a supported D&D 3.5 race.")
+    if kind not in ("pc", "npc"):
+        raise ValueError("Class-based creation is for PCs and NPCs.")
+    if kind == "pc" and race not in RACIAL_ADJUSTMENTS:
+        raise ValueError("Choose a supported D&D 3.5 player race.")
+    if kind == "npc" and racial_override is None and race not in RACIAL_ADJUSTMENTS:
+        raise ValueError("NPC ancestry modifiers must be supplied.")
     if character_class not in CORE_CLASSES and (
         custom_hit_die is None or custom_skill_points is None
     ):
@@ -121,14 +134,24 @@ def build_character(*, name: str, race: str, character_class: str,
         raise ValueError("Hit die must be between d4 and d20.")
     if custom_skill_points is not None and not 1 <= custom_skill_points <= 20:
         raise ValueError("Class skill points must be between 1 and 20.")
+    if set(base) != set(ABILITIES):
+        raise ValueError("All six base scores are required.")
     if any(not 3 <= score <= 18 for score in base.values()):
         # For manual entry and standard array, the basic unadjusted scores.
         raise ValueError("Base scores must be between 3 and 18.")
-    final = adjusted_scores(base, race)
+    final = adjusted_scores(base, race, racial_override)
     hit_die = (CORE_CLASSES[character_class][0] if character_class in CORE_CLASSES
                else custom_hit_die)
     hp = max(1, hit_die + ability_modifier(final["constitution"]))
-    ac = 10 + ability_modifier(final["dexterity"]) + (1 if race in SMALL_RACES else 0)
+    # The complete size modifier is required for NPC races outside the core
+    # Small/Medium range. This is AC only; other racial traits are not assumed.
+    size_ac = {"Fine":8,"Diminutive":4,"Tiny":2,"Small":1,"Medium":0,
+               "Large":-1,"Huge":-2,"Gargantuan":-4,"Colossal":-8}
+    if size_override is not None and size_override not in size_ac:
+        raise ValueError("Unknown NPC size category.")
+    ac = (10 + ability_modifier(final["dexterity"])
+          + (size_ac[size_override] if size_override is not None else
+             (1 if race in SMALL_RACES else 0)))
     skill_rate = (CORE_CLASSES[character_class][1] if character_class in CORE_CLASSES
                   else custom_skill_points)
     skill = max(1, skill_rate + ability_modifier(final["intelligence"])) * 4
@@ -139,7 +162,8 @@ def build_character(*, name: str, race: str, character_class: str,
         ", ".join(f"{key[:3].upper()} {base[key]}" for key in ABILITIES),
         "Racial adjustments: " + (", ".join(
             f"{a[:3].upper()} {v:+d}"
-            for a, v in RACIAL_ADJUSTMENTS[race].items()
+            for a, v in (racial_override if racial_override is not None
+                         else RACIAL_ADJUSTMENTS[race]).items()
         ) or "none"),
         f"Level 1 hit points: {hp} (maximum class hit die + CON modifier).",
         f"First-level skill points available: {skill} (not yet assigned).",
@@ -154,7 +178,7 @@ def build_character(*, name: str, race: str, character_class: str,
     if notes.strip():
         info.extend(("", notes.strip()))
     return Creature(
-        name=name.strip(), kind="pc", race_type=race,
+        name=name.strip(), kind=kind, race_type=race,
         character_class=character_class, level=1,
         armor_class=max(0, ac), max_hit_points=hp,
         notes="\n".join(info), **final,

@@ -180,3 +180,69 @@ When the available panel height is small, **only the Selected Record
 preview's content scrolls** rather than crushing the ability cards to
 make room for Notes and buttons. The original banner, sidebar, overall
 window layout, record data, and D&D mechanics remain unchanged.
+
+
+## v0.6.0: NPC Forge and D&D 3.5 Monster Forge (first rules milestone)
+
+**NPCs use the Character Forge.** The + New NPC sidebar action now opens
+the same ability rolling, manual ability entry, Name Genie, class build, skills,
+feats, equipment, background and AI biography flow as Player Characters.
+NPC records save as type NPC (not PC), and can reopen and edit their saved
+level-one sheet.
+
+NPCs may choose from a broad naming ancestry list, and can enter a completely
+custom race. The initial *mechanically verified* ancestry profiles are the
+seven original core races plus **Goblin, Orc, Kobold and Hobgoblin**. Their
+racial ability modifiers and supported size adjustments are applied correctly.
+Every other listed ancestry remains selectable but **requires explicit DM
+confirmation and manual racial modifiers**. Its racial HD, level adjustment,
+unique traits, natural armor, skill bonuses etc. are *not* automatically
+provided. For creatures with 2+ racial HD use the Monster Forge to handle
+their monster statistics instead of pretending a one-level humanoid NPC is
+a complete creature. Known racial LA and selected traits are recorded
+alongside structured ancestry data.
+
+The five D&D 3.5 **NPC classes** (Adept, Aristocrat, Commoner, Expert, Warrior)
+are in the class menu with hit dice, skill rates and editable skill/feat/gear
+starter templates. Expert chooses ten class skills; the template starts with
+ten editable suggestions, which can be replaced by the DM. The previous
+Player Character core and supplemental class options remain intact.
+
+**Monster Forge:** + New Monster opens the new dedicated monster builder,
+with any species name, all **15 D&D 3.5 SRD creature types**, nine size
+categories, subtype and racial Hit Dice, 6 editable abilities, absent CON
+for constructs/undead and absent INT for mindless creatures, average/rolled/
+manual HP, size-dependent construct bonus HP, base attack bonus, base saves,
+natural/armor/shield AC, size and grapple modifiers, initiative, melee/ranged
+attack bonuses, racial skill points and feat count. Elemental good saves
+depend on Air/Fire or Earth/Water subtypes; Humanoid's one good save is
+explicitly selectable. Select standard/elite/nonelite ability arrays or
+enter abilities directly. Specify optional DM CR (including fractions),
+natural attack routines, special attacks/qualities, skills, feats, speed,
+alignment, environment, treasure, organization and more. The exact resulting
+stat data is stored in the existing SQLite library's structured sheet JSON
+and can be reopened and edited without overwriting unrelated notes.
+
+**Not yet automatic:** species-specific monster stat blocks, monster levels
+combined with class levels, multi-template application, natural weapon damage
+tables, spell-like abilities, spell lists, detailed immunities, selected feat
+prerequisites, level adjustment verification, and fully validated CR. **CR
+is deliberately a DM-entered number**: D&D 3.5 increases from associated vs.
+nonassociated levels, extra HD, size changes, templates and special abilities
+cannot reliably be inferred from HD alone. The ability to create every
+published monster is a multi-release content and rules project, not something
+claimed complete by this build.
+
+Rules references (D&D 3.5 SRD, Open Game Content):
+- https://www.d20srd.org/srd/typesSubtypes.htm
+- https://www.d20srd.org/srd/improvingMonsters.htm
+- https://www.d20srd.org/srd/monstersAsRaces.htm
+- https://www.d20srd.org/srd/npcClasses/
+- https://www.d20srd.org/srd/monsters/goblin.htm
+- https://www.d20srd.org/srd/monsters/kobold.htm
+- https://www.d20srd.org/srd/monsters/orc.htm
+- https://www.d20srd.org/srd/monsters/hobgoblin.htm
+
+This release changes no main banner artwork, ability-score presentation or
+existing data schema. The old generic record editor remains available for
+legacy monster records.
