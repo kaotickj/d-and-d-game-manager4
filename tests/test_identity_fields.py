@@ -40,6 +40,27 @@ class IdentityRulesTests(unittest.TestCase):
         self.assertEqual(parsed["extra_notes"],"Prefers the west road.")
         self.assertNotIn("Age:",parsed["extra_notes"])
 
+    def test_ai_character_respects_selected_demographics(self):
+        draft = {
+            "kind": "pc", "race": "Human", "class": "Fighter",
+            "name": "Rin", "base_scores": dict(BASE),
+            "alignment": "True Neutral",
+            "feats": ["Improved Initiative"],
+            "equipment": ["Longsword"],
+            "gender": "Nonbinary", "age": "31 years",
+        }
+        valid = validate_draft(
+            draft, race="Human", class_name="Fighter", kind="pc",
+            desired_gender="Nonbinary", desired_age="31 years")
+        self.assertEqual((valid["gender"], valid["age"]),
+                         ("Nonbinary", "31 years"))
+        with self.assertRaisesRegex(ValueError, "selected gender"):
+            validate_draft(draft, race="Human", class_name="Fighter",
+                           kind="pc", desired_gender="Male")
+        with self.assertRaisesRegex(ValueError, "selected age"):
+            validate_draft(draft, race="Human", class_name="Fighter",
+                           kind="pc", desired_age="30 years")
+
     def test_monster_blueprint_gender_and_life_stage_saved(self):
         for gender,age in (("Genderless","Ancient"),
                            ("Female","280 years"),("Unspecified","Hatchling")):
