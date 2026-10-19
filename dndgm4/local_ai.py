@@ -70,6 +70,89 @@ PROMPTS = {
         "All details should be editable storytelling suggestions. "
         "Plain prose, no stat block."
     ),
+    "encounter_json": (
+        "You are an encounter scenario writer for D&D 3.5, working with a "
+        "real saved bestiary. Return ONLY a valid JSON object with these "
+        "fields: title, location, setup, read_aloud, terrain, stakes, "
+        "consequences, participants. participants must be an array of objects "
+        "with record_id and count (integer 1 to 20). Copy record_id EXACTLY "
+        "from the AVAILABLE ENCOUNTER ACTORS given by the DM, and never "
+        "invent IDs or enemy statistics. Prefer an interesting encounter "
+        "with meaningful choices rather than mandatory combat. Honor party "
+        "composition, present NPCs, environment, named places, conditions "
+        "and quests. If no suitable saved creatures are available, return "
+        "an empty participants list and a noncombat scenario instead. "
+        "Challenge Rating and Encounter Level are NOT computed by you. "
+        "Avoid any text outside the JSON object."
+    ),
+    "pc_json": (
+        "Create an ORIGINAL level-1 D&D 3.5 player character PROPOSAL as "
+        "ONLY a JSON object, not markdown. Exact fields: kind='pc', name, "
+        "race, class, abilities, alignment, appearance, personality, "
+        "biography, feats (array), equipment (array), languages (array), "
+        "deity, spell_notes. Use precisely six integer BASE scores 3 to 18 "
+        "in abilities with keys strength, dexterity, constitution, "
+        "intelligence, wisdom, charisma, before racial bonuses. Race MUST "
+        "be one of Human, Dwarf, Elf, Gnome, Half-elf, Half-orc, Halfling. "
+        "Class must be one already available in the supplied CLASS LIST, "
+        "and not an NPC-only class. Feats, spells and gear are suggestions "
+        "for DM review, not automatically verified. Alignment must be one "
+        "of the nine full D&D 3.5 alignment names. Respect the active "
+        "campaign details and avoid canonical setting spoilers. No markdown."
+    ),
+    "npc_json": (
+        "Create an ORIGINAL level-1 NPC proposal for D&D 3.5 as ONLY "
+        "valid JSON with exact fields: kind='npc', name, race, class, "
+        "abilities, alignment, appearance, personality, biography, feats, "
+        "equipment, languages, deity, spell_notes. Six integer BASE ability "
+        "scores 3-18 under strength, dexterity, constitution, intelligence, "
+        "wisdom, charisma. Race MUST be a VERIFIED NPC RACE in the supplied "
+        "list (not a monster race with extra Hit Dice). Class MUST be in "
+        "the supplied class list (including Adept, Aristocrat, Commoner, "
+        "Expert and Warrior). Respect towns, organizations, named NPCs, "
+        "party motivations and local politics. Note spell/feat selections "
+        "are DM-reviewed suggestions. No invented racial modifiers, CR "
+        "or new rules. Return only the JSON object."
+    ),
+    "monster_json": (
+        "Create an ORIGINAL D&D 3.5 monster proposal as ONLY a JSON object "
+        "with: kind='monster', name, species, creature_type, subtype, size, "
+        "hit_dice (integer 1-30), abilities (all six), alignment, speed, "
+        "environment, organization, biography, notes, good_save. Choose "
+        "creature_type from the 15 D&D 3.5 SRD types and size from Fine, "
+        "Diminutive, Tiny, Small, Medium, Large, Huge, Gargantuan, Colossal. "
+        "Stats will be calculated by the manager using racial Hit Dice, "
+        "not by you. Scores can be 0-99, CON must be null for Construct "
+        "or Undead; INT can be null for an appropriate mindless type. "
+        "Animal INT must be 1 or 2. Use subtype Air/Fire/Earth/Water "
+        "for Elemental, and good_save Fort/Ref/Will for Humanoid. "
+        "No inferred challenge rating, attacks, spell DCs, feats or "
+        "game-mechanical abilities. Write grounded ecology and lore. "
+        "No markdown or explanations outside the JSON."
+    ),
+    "campaign_outline": (
+        "You are an expert tabletop D&D 3.5 campaign architect. Develop "
+        "an ORIGINAL long-form campaign outline from the supplied active "
+        "party, existing locations, world events, factions, inns, towns, "
+        "relationships and campaign notes. Use a title, central conflict, "
+        "inciting incident, act-by-act chapter outline, meaningful choices, "
+        "recurring cast, consequences, resolution branches, and open ends. "
+        "Avoid railroaded outcomes, spoilers for the players, invented "
+        "game mechanics, and unsupported canon claims. State where the "
+        "DM should build encounters. This is an outline, not an instant "
+        "fully playable rule-checked campaign."
+    ),
+    "campaign_chapter": (
+        "Write the NEXT detailed original D&D 3.5 tabletop campaign chapter "
+        "following the supplied previously saved outline and chapters. "
+        "Include a scene-setting introduction, locations and factions "
+        "already established, named NPC roles, branching player choices, "
+        "DM secrets, investigation/social/combat opportunities, optional "
+        "encounter hooks, pacing, consequences and continuity notes. "
+        "Do not alter character sheets or invent game statistics. "
+        "Use clear short headings. Respect established story canon. "
+        "Make the chapter playable after DM rules/encounter review."
+    ),
     "dm": (
         "You are a creative D&D 3.5 game master. Write an original "
         "60-150 word second-person scene narration with sensory detail, "
@@ -219,7 +302,9 @@ class _GGUFSession:
                 {"role": "system", "content": PROMPTS[kind]},
                 {"role": "user", "content": context.strip()},
             ],
-            "stream": False, "temperature": .75, "max_tokens": 650,
+            "stream": False, "temperature": .75,
+            "max_tokens": (1650 if kind.startswith("campaign_") else
+                           1250 if kind.endswith("_json") else 650),
         }, timeout=timeout)
         choices = response.get("choices") or []
         if not choices or not isinstance(choices[0], dict):
@@ -358,7 +443,11 @@ def text_generate(kind: str, context: str, *, model: str = DEFAULT_MODEL,
             "prompt": PROMPTS[kind] + "\n\nContext:\n" + context.strip()
                       + "\n\nResponse:",
             "stream": False,
-            "options": {"temperature": .75, "num_predict": 650},
+            "options": {
+                "temperature": .75,
+                "num_predict": (1650 if kind.startswith("campaign_") else
+                                1250 if kind.endswith("_json") else 650),
+            },
         }, timeout=timeout)
     except LocalAIError as exc:
         raise LocalAIError(
