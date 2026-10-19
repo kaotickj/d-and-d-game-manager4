@@ -103,16 +103,12 @@ class ForgeUiTests(unittest.TestCase):
         from dndgm4.ui import MainWindow
         from PyQt6.QtCore import Qt
         with TemporaryDirectory() as tmp:
-            print('Scribe regression: constructing main window', flush=True)
             win = MainWindow(CreatureRepository(Path(tmp) / "library.sqlite3"))
-            print('Scribe regression: showing main', flush=True)
             win.show()
             self.app.processEvents()
             self.assertTrue(win.isVisible())
-            print('Scribe regression: opening narrator', flush=True)
             win.open_narrator()
             self.app.processEvents()
-            print('Scribe regression: reading dialog', flush=True)
             narrator = win._narrator_dialog
             self.assertIsNotNone(narrator)
             self.assertTrue(narrator.isVisible())
@@ -120,32 +116,22 @@ class ForgeUiTests(unittest.TestCase):
             self.assertEqual(narrator.windowModality(), Qt.WindowModality.NonModal)
             win.open_narrator()
             self.assertIs(win._narrator_dialog, narrator)
-            print('Scribe regression: closing narrator', flush=True)
-            print('quit_on_last:', self.app.quitOnLastWindowClosed(), flush=True)
-            print('top-level:', [
-                (type(widget).__name__, widget.isVisible(),
-                 widget.testAttribute(Qt.WidgetAttribute.WA_QuitOnClose))
-                for widget in self.app.topLevelWidgets()], flush=True)
-            self.app.setQuitOnLastWindowClosed(False)
+            # The window X hides the narrator without destroying the main app.
             narrator.close()
-            print("Scribe regression: close returned", flush=True)
             self.app.processEvents()
-            print("Scribe regression: events processed after close", flush=True)
             self.assertTrue(win.isVisible())
             self.assertFalse(narrator.isVisible())
             self.assertIs(win._narrator_dialog, narrator)
-            # The sidebar can reopen the same dialog; closing it a second
-            # time must not end the compendium.
+            # Reopen that same dialog; the in-dialog Close button must also
+            # leave the main app visible, under default Qt quit behavior.
             win.open_narrator()
             self.app.processEvents()
             self.assertIs(win._narrator_dialog, narrator)
             self.assertTrue(narrator.isVisible())
-            print('Scribe regression: clicking close', flush=True)
             narrator.use.click()
             self.app.processEvents()
             self.assertTrue(win.isVisible())
             self.assertFalse(narrator.isVisible())
-            print('Scribe regression: closing main', flush=True)
             win.close()
 
     def test_dm_sidebar_action_and_local_ai_no_auto_calls(self):
