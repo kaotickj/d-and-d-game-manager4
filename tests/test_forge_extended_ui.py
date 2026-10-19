@@ -82,6 +82,22 @@ class ForgeUiTests(unittest.TestCase):
             self.assertEqual(load_sheet(repo.get(saved.id))["equipment"],["Spear","Travel pack"])
             editor.close()
 
+    def test_scribe_switches_qwen_gemma_for_each_biography(self):
+        from dndgm4.ai_ui import AIWritingDialog
+        from dndgm4.local_ai import GGUF_MODELS
+        for kind in ("bio", "npc_bio", "monster_bio"):
+            with self.subTest(kind=kind):
+                dialog = AIWritingDialog(kind, "Original campaign")
+                self.assertTrue(dialog.use.text() == "Use Draft")
+                self.assertEqual(
+                    dialog.model.text(),
+                    str(GGUF_MODELS["Gemma The Writer 9B (GGUF)"]))
+                dialog.preset.setCurrentIndex(0)
+                self.assertEqual(
+                    dialog.model.text(),
+                    str(GGUF_MODELS["Qwen3 4B Instruct (GGUF)"]))
+                dialog.close()
+
     def test_dm_sidebar_action_and_local_ai_no_auto_calls(self):
         from PyQt6.QtWidgets import QPushButton
         from dndgm4.ui import MainWindow
