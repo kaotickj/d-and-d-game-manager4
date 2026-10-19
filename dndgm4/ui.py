@@ -100,6 +100,7 @@ class CreatureEditor(QDialog):
 
     def __init__(self, creature: Creature, parent=None):
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.original = creature
         self.result_creature = None
         title = "Edit Record" if creature.id else "Create Record"
