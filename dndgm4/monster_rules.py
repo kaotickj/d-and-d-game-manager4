@@ -100,6 +100,7 @@ class MonsterBlueprint:
     level_adjustment: str = ""
     notes: str = ""
     hp_method: str = "average"
+    manual_hit_points: int = 1
 
 def _good_saves(b:MonsterBlueprint)->tuple[str,...]:
     spec=TYPES[b.creature_type]
@@ -148,8 +149,10 @@ def compute_monster(b:MonsterBlueprint, *, roller=None)->dict:
         raise ValueError("Animal Intelligence must be 1 or 2.")
     if not -20<=b.natural_armor<=99 or not 0<=b.armor_bonus<=99 or not 0<=b.shield_bonus<=99:
         raise ValueError("Armor bonuses outside accepted ranges.")
-    if b.hp_method not in ("average","rolled"):
-        raise ValueError("HP method must be average or rolled.")
+    if b.hp_method not in ("average","rolled","manual"):
+        raise ValueError("HP method must be average, rolled or manual.")
+    if b.hp_method == "manual" and not 1 <= b.manual_hit_points <= 999999:
+        raise ValueError("Manual hit points must be 1-999999.")
     good=_good_saves(b)
     cmod=_modifier(b.abilities["constitution"])
     dex=_modifier(b.abilities["dexterity"])
@@ -162,7 +165,8 @@ def compute_monster(b:MonsterBlueprint, *, roller=None)->dict:
     else:
         hd_hp=b.hit_dice*(spec.die+1)//2
     bonus=CONSTRUCT_BONUS_HP[b.size] if b.creature_type=="Construct" else 0
-    hit_points=max(1,hd_hp + b.hit_dice*cmod + bonus)
+    hit_points=(b.manual_hit_points if b.hp_method=="manual" else
+                max(1,hd_hp + b.hit_dice*cmod + bonus))
     fort=base_save(b.hit_dice,"Fort" in good)+cmod
     reflex=base_save(b.hit_dice,"Ref" in good)+dex
     will=base_save(b.hit_dice,"Will" in good)+wis
@@ -198,7 +202,8 @@ def build_monster(b:MonsterBlueprint, *, roller=None)->Creature:
             for name,value in b.abilities.items()}
     info=dict(version=1,monster_type=b.creature_type,subtype=b.subtype,
               species=b.species.strip(),size=b.size,hit_dice=b.hit_dice,
-              hp_method=b.hp_method,computed=stats,
+              hp_method=b.hp_method,manual_hit_points=b.manual_hit_points,
+              computed=stats,
               null_abilities=[key for key,val in b.abilities.items() if val is None],
               natural_armor=b.natural_armor,armor_bonus=b.armor_bonus,
               shield_bonus=b.shield_bonus,speed=b.speed,
