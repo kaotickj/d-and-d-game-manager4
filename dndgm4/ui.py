@@ -602,14 +602,37 @@ class MainWindow(QMainWindow):
         self.preview_sub.setText(KIND_LABELS[record.kind] + ("  ·  ARCHIVED" if record.archived else "  ·  ACTIVE"))
         progression = (record.challenge_rating or "—") if record.kind == "monster" else str(record.level)
         progress_label = "Challenge Rating" if record.kind == "monster" else "Level"
-        self.detail.setText(
-            f"Race / Type: {record.race_type or '—'}\n"
-            f"Class: {record.character_class or '—'}\n"
-            f"{progress_label}: {progression}\n"
-            f"Armor Class: {record.armor_class}    ·    Hit Points: {record.max_hit_points}"
-        )
+        import json
+        try:
+            sheet = json.loads(record.sheet_json) if record.sheet_json else {}
+        except (ValueError, TypeError):
+            sheet = {}
+        if record.kind == "monster" and sheet.get("monster_type"):
+            computed = sheet.get("computed", {})
+            self.detail.setText(
+                f"Species: {record.race_type or '—'}\n"
+                f"Type: {sheet.get('monster_type', '')}"
+                f"  ·  {sheet.get('size', 'Medium')}\n"
+                f"Hit Dice: {computed.get('hit_dice_notation', '—')}"
+                f"   ·   CR: {progression}\n"
+                f"AC {record.armor_class}   ·   HP {record.max_hit_points}"
+                f"   ·   BAB +{computed.get('bab', 0)}\n"
+                f"Fort {computed.get('fort', 0):+d}  /  "
+                f"Ref {computed.get('ref', 0):+d}  /  "
+                f"Will {computed.get('will', 0):+d}\n"
+                "Special traits and CR require DM review."
+            )
+        else:
+            self.detail.setText(
+                f"Race / Type: {record.race_type or '—'}\n"
+                f"Class: {record.character_class or '—'}\n"
+                f"{progress_label}: {progression}\n"
+                f"Armor Class: {record.armor_class}    ·    Hit Points: {record.max_hit_points}"
+            )
+        no_score = set(sheet.get("null_abilities", []))
         for attribute, score in self.stat_values.items():
-            score.setText(str(getattr(record, attribute)))
+            score.setText("—" if attribute in no_score else
+                          str(getattr(record, attribute)))
         self.notes_preview.setPlainText(record.notes)
         self.archive_button.setText("Restore" if record.archived else "Archive")
 
