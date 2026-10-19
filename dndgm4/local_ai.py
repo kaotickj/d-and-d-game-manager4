@@ -42,6 +42,30 @@ PROMPTS = {
         "game mechanics or copyrighted setting characters. "
         "Provide plain prose without internal reasoning."
     ),
+    "character_build": (
+        "You are a D&D 3.5 SRD first-level CHARACTER BUILD PROPOSAL writer. "
+        "Return exactly ONE JSON OBJECT without markdown, commentary or "
+        "code fences. Match the user's selected kind (pc or npc), race and "
+        "class exactly; do not invent race adjustments, class features, "
+        "feats or spell limits. Include these fields: kind, race, class, "
+        "name, base_scores (strength, dexterity, constitution, intelligence, "
+        "wisdom, charisma as integer 3..18 BEFORE racial adjustments), "
+        "alignment (full 3.5 alignment), feats (array), equipment (array), "
+        "inventory (newline-separated gear, optionally N x item), "
+        "skills_half_ranks (map of SRD skill names to half-rank ticks, 2 per "
+        "whole rank), class_features (array), spellbook (object), languages "
+        "(array), deity, appearance, personality, biography, notes. "
+        "The 'spellbook' object needs the keys known, prepared, spellbook, "
+        "each mapping '0' and '1' to arrays of correctly-classed spell names "
+        "from the allowed catalog in the prompt; include domains (array), "
+        "specialization (string), prohibited_schools (array). "
+        "Respect the supplied first-level feat limit and prerequisites, "
+        "allocated skill point budget and maximum ranks. Give personality "
+        "and a complete original campaign-usable biography. Do not invent "
+        "unsupported class mechanics, and do not claim unverified rules "
+        "have been checked. All proposed fields are validated by the "
+        "game manager before being applied. JSON only."
+    ),
     "npc_bio": (
         "You write nuanced, original NPC biographies for a D&D 3.5 tabletop "
         "campaign. Produce 160-250 words about the NPC's history, current "
@@ -207,7 +231,7 @@ def generate_gguf(kind: str, context: str, model: str, *,
                 ],
                 "stream": False,
                 "temperature": .75,
-                "max_tokens": 650,
+                "max_tokens": 1600 if kind == "character_build" else 650,
             }, timeout=timeout)
             choices = response.get("choices") or []
             if not choices or not isinstance(choices[0], dict):
@@ -245,7 +269,7 @@ def text_generate(kind: str, context: str, *, model: str = DEFAULT_MODEL,
             "prompt": PROMPTS[kind] + "\n\nContext:\n" + context.strip()
                       + "\n\nResponse:",
             "stream": False,
-            "options": {"temperature": .75, "num_predict": 650},
+            "options": {"temperature": .75, "num_predict": 1600 if kind == "character_build" else 650},
         }, timeout=timeout)
     except LocalAIError as exc:
         raise LocalAIError(
