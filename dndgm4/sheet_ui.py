@@ -22,6 +22,23 @@ from .character_sheet import (
 from .spell_rules import CASTERS, SPELL_LISTS, default_spellbook, spell_profile, validate_spellbook
 from .build_rules import inventory_from_text, inventory_to_text
 
+FIRST_LEVEL_FEATURES = {
+    "Barbarian": ("Rage 1/day", "Fast movement"),
+    "Bard": ("Bardic music", "Bardic knowledge"),
+    "Cleric": ("Turn or rebuke undead", "Two divine domains (choose and verify)"),
+    "Druid": ("Animal companion", "Nature sense", "Wild empathy",
+              "Spontaneous summon nature's ally"),
+    "Fighter": ("Fighter bonus combat feat",),
+    "Monk": ("Flurry of blows", "Unarmed strike", "AC bonus",
+             "Choose monk bonus feat (DM review)"),
+    "Paladin": ("Aura of good", "Detect evil", "Smite evil 1/day"),
+    "Ranger": ("Favored enemy", "Track (bonus feat)", "Wild empathy"),
+    "Rogue": ("Sneak attack +1d6", "Trapfinding"),
+    "Sorcerer": ("Summon familiar",),
+    "Wizard": ("Scribe Scroll (bonus feat)", "Summon familiar"),
+}
+
+
 
 def lines(value: str) -> list[str]:
     return [line.strip() for line in value.replace(",", "\n").splitlines()
@@ -326,6 +343,8 @@ class SheetOptions(QWidget):
             self.feats.setPlainText("\n".join(t.suggested_feats))
             self.equipment.setPlainText("\n".join(t.suggested_equipment))
             self.spells.setPlainText(t.spellcasting_note)
+            self.features.setPlainText("\n".join(FIRST_LEVEL_FEATURES.get(
+                self.current_class(),())))
             self.fill_spellbook(default_spellbook(
                 self.current_class(),self.scores_provider()))
             self.inventory.setPlainText("\n".join(t.suggested_equipment))
@@ -344,6 +363,7 @@ class SheetOptions(QWidget):
                 self.equipment.clear()
                 self.spells.clear()
                 self.inventory.clear()
+                self.features.clear()
                 self.fill_spellbook({})
         for name,field in self.skill_fields.items():
             field.blockSignals(True)
