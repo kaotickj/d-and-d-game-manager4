@@ -328,7 +328,7 @@ class MonsterCreatorDialog(QDialog):
             f"{'No score' if (name == 'constitution' and self.no_con.isChecked()) or (name == 'intelligence' and self.no_int.isChecked()) else box.value()}"
             for name, box in self.ability_fields.items()
         )
-        context = "\\n".join((
+        context = "\n".join((
             f"Name: {self.name.text() or 'Unnamed creature'}",
             f"Species: {self.species.currentText() or 'Original species'}",
             f"Type: {self.type.currentText()}; subtype: {self.subtype.text()}",
