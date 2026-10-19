@@ -37,6 +37,7 @@ class MonsterCreatorDialog(QDialog):
 
     def __init__(self, parent=None, creature=None):
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.original=creature
         self.result_creature=None
         self.setWindowTitle("The Monster Forge | D&D Game Manager 4")
