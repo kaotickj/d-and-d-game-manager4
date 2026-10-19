@@ -670,7 +670,11 @@ class MainWindow(QMainWindow):
         event loop) prevents dialog shutdown from closing the main app.
         """
         existing = getattr(self, "_narrator_dialog", None)
-        if existing is not None and existing.isVisible():
+        if existing is not None:
+            # Reuse even a previously closed dialog. Qt can be in the middle
+            # of dispatching its finished/close event; never drop the final
+            # reference from that callback.
+            existing.show()
             existing.raise_()
             existing.activateWindow()
             return
@@ -681,7 +685,8 @@ class MainWindow(QMainWindow):
         writer.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         writer.setWindowModality(Qt.WindowModality.NonModal)
         self._narrator_dialog = writer
-        writer.finished.connect(lambda _result: setattr(self, "_narrator_dialog", None))
+        # Keep a strong reference until MainWindow is itself destroyed.
+        # Do not dereference the child from its own 'finished' signal.
         writer.show()
 
     def open_dice(self):
