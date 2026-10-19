@@ -99,6 +99,7 @@ class MonsterBlueprint:
     advancement: str = ""
     level_adjustment: str = ""
     notes: str = ""
+    biography: str = ""
     hp_method: str = "average"
     manual_hit_points: int = 1
 
@@ -213,7 +214,7 @@ def build_monster(b:MonsterBlueprint, *, roller=None)->Creature:
               alignment=b.alignment,environment=b.environment,
               organization=b.organization,treasure=b.treasure,
               advancement=b.advancement,level_adjustment=b.level_adjustment,
-              manual_cr=cr,notes=b.notes,
+              manual_cr=cr,notes=b.notes,biography=b.biography.strip(),
               rules_review="CR, natural attacks, species traits, class levels and templates are DM-reviewed.")
     return Creature(name=b.name.strip(),kind="monster",race_type=b.species.strip(),
                     character_class=b.creature_type,level=0,challenge_rating=cr,
