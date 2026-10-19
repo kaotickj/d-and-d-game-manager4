@@ -147,7 +147,12 @@ class MonsterCreatorDialog(QDialog):
         self.hp_method=QComboBox()
         self.hp_method.addItem("Average Hit Dice (recommended for NPC stats)","average")
         self.hp_method.addItem("Roll racial Hit Dice on Save","rolled")
+        self.hp_method.addItem("Manual HP override","manual")
         form.addRow("Hit point method",self.hp_method)
+        self.manual_hp=QSpinBox()
+        self.manual_hp.setRange(1,999999)
+        self.manual_hp.setValue(1)
+        form.addRow("Manual HP",self.manual_hp)
         self.speed=QLineEdit("30 ft.")
         form.addRow("Movement",self.speed)
         self.cr=QLineEdit()
@@ -200,6 +205,9 @@ class MonsterCreatorDialog(QDialog):
                 widget.currentTextChanged.connect(self.on_change)
         self.subtype.textChanged.connect(self.on_change)
         self.hd.valueChanged.connect(self.on_change)
+        self.manual_hp.valueChanged.connect(self.on_change)
+        self.name.textChanged.connect(self.on_change)
+        self.species.currentTextChanged.connect(self.on_change)
         self.no_con.toggled.connect(self.on_change)
         self.no_int.toggled.connect(self.on_change)
         for box in self.ability_fields.values():
@@ -249,9 +257,13 @@ class MonsterCreatorDialog(QDialog):
             self.no_int.setChecked(False)
             self.no_int.blockSignals(False)
         self.ability_fields["intelligence"].setEnabled(not self.no_int.isChecked())
+        self.manual_hp.setEnabled(self.hp_method.currentData()=="manual")
         self.good_save.setEnabled(kind=="Humanoid")
         try:
             b=self.blueprint()
+            # A preview is informational; dice are only rolled when saving.
+            if b.hp_method=="rolled":
+                b=replace(b,hp_method="average")
             stats=compute_monster(b)
             warning=" (CR needs DM selection)" if not b.cr.strip() else ""
             self.preview.setText(
@@ -282,7 +294,8 @@ class MonsterCreatorDialog(QDialog):
             environment=self.environment.text(),organization=self.organization.text(),
             treasure=self.treasure.text(),advancement=self.advancement.text(),
             level_adjustment=self.la.text(),notes=self.notes.toPlainText(),
-            hp_method=self.hp_method.currentData())
+            hp_method=self.hp_method.currentData(),
+            manual_hit_points=self.manual_hp.value())
 
     def suggest_name(self):
         picker=NamePickerDialog(race=self.species.currentText() or "Goblin",
@@ -339,5 +352,10 @@ class MonsterCreatorDialog(QDialog):
                          ("advancement",self.advancement),
                          ("level_adjustment",self.la)):
             ctrl.setText(data.get(key,""))
-        self.hp_method.setCurrentIndex(0 if data.get("hp_method")=="average" else 1)
+        self.manual_hp.setValue(data.get("manual_hit_points",
+                                         record.max_hit_points))
+        # Preserve existing rolled HP when editing unrelated fields. Select
+        # "Roll racial Hit Dice" explicitly to reroll on the next save.
+        self.hp_method.setCurrentIndex(
+            2 if data.get("hp_method") in ("manual","rolled") else 0)
         self.on_change()
