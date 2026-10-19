@@ -5,6 +5,7 @@ starting templates: class features and legal feat/spell prerequisites require
 human review. The same control surface handles custom class entry.
 """
 from __future__ import annotations
+from dataclasses import replace
 
 import json
 from PyQt6.QtWidgets import (
@@ -184,15 +185,24 @@ class SheetOptions(QWidget):
         return self.class_picker.currentData() == "__custom__"
 
     def spec(self):
-        return class_specs(self.current_class() if not self.is_custom() else "",
-                           self.hit_die.value(),self.sp_rate.value())
+        t = class_specs(self.current_class() if not self.is_custom() else "",
+                        self.hit_die.value(),self.sp_rate.value())
+        if self.current_class() == "Expert":
+            choices = lines(self.custom_skills.text())
+            if choices:
+                t = replace(t,class_skills=tuple(choices),
+                            suggested_skills=tuple(choices[:4]))
+        return t
 
     def change_class(self,*args):
         custom=self.is_custom()
         self.custom_class_name.setVisible(custom)
         self.hit_die.setEnabled(custom)
         self.sp_rate.setEnabled(custom)
-        self.custom_skills.setEnabled(custom)
+        self.custom_skills.setEnabled(custom or self.current_class()=="Expert")
+        if self.current_class()=="Expert" and not self.custom_skills.text().strip():
+            self.custom_skills.setText(", ".join(
+                class_specs("Expert").class_skills))
         t=self.spec()
         self.hit_die.setValue(t.hit_die)
         self.sp_rate.setValue(t.skill_points)
