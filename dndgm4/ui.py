@@ -634,7 +634,19 @@ class MainWindow(QMainWindow):
         for attribute, score in self.stat_values.items():
             score.setText("—" if attribute in no_score else
                           str(getattr(record, attribute)))
-        self.notes_preview.setPlainText(record.notes)
+        # Surface saved biographies without mixing them into DM notes.
+        biography = (sheet.get("biography", "") if record.kind == "monster"
+                     else sheet.get("background", ""))
+        if isinstance(biography, str) and biography.strip():
+            text = ("BESTIARY BIOGRAPHY" if record.kind == "monster"
+                    else ("NPC BIOGRAPHY" if record.kind == "npc"
+                          else "CHARACTER BIOGRAPHY"))
+            text += "\n" + biography.strip()
+            if record.notes.strip():
+                text += "\n\nDM / CREATION NOTES\n" + record.notes
+            self.notes_preview.setPlainText(text)
+        else:
+            self.notes_preview.setPlainText(record.notes)
         self.archive_button.setText("Restore" if record.archived else "Archive")
 
     def persist(self, record):

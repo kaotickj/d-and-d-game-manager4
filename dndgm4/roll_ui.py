@@ -320,8 +320,13 @@ class CharacterCreatorDialog(QDialog):
         self.notes.setPlaceholderText("Optional character notes or background...")
         self.notes.setMinimumHeight(90)
         body.addWidget(self.notes)
-        self.bio_button = QPushButton("Generate Character Biography (Local AI)")
-        self.bio_button.setAccessibleName("Generate biography with locally hosted Qwen3 language model")
+        self.bio_button = QPushButton(
+            "Generate NPC Biography (Gemma / Qwen3)" if self.kind == "npc"
+            else "Generate Character Biography (Gemma / Qwen3)"
+        )
+        self.bio_button.setAccessibleName(
+            "Generate editable biography with a local Gemma or Qwen3 writing model"
+        )
         self.bio_button.clicked.connect(self.write_biography)
         body.addWidget(self.bio_button)
         scroll.setWidget(sheet)
@@ -405,17 +410,45 @@ class CharacterCreatorDialog(QDialog):
         self.update_totals()
 
     def write_biography(self):
-        scores = ", ".join(f"{attr[:3].upper()} {self.score_inputs[attr].value()}"
-                           for attr in ABILITIES)
-        context=(
-            f"Character: {self.name.text().strip() or 'Unnamed'}, "
-            f"Race: {self.race.currentText()}, Class: {self.options.current_class()}, "
-            f"Alignment: {self.options.alignment.currentText()}, {scores}.\n"
-            f"Personality: {self.options.personality.toPlainText()}.\n"
-            f"Player notes: {self.notes.toPlainText()}"
+        """Draft story text only; the selected model cannot alter game rules."""
+        scores = ", ".join(
+            f"{attr[:3].upper()} {self.final_scores()[attr]}"
+            for attr in ABILITIES
         )
-        dialog=AIWritingDialog("bio", context, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.generated_text:
+        context = (
+            f"Record: {'NPC' if self.kind == 'npc' else 'player character'}\n"
+            f"Name: {self.name.text().strip() or 'Unnamed'}\n"
+            f"Race: {self.race.currentText()}\n"
+            f"Class: {self.options.current_class()}\n"
+            f"Alignment: {self.options.alignment.currentText()}\n"
+            f"Ability scores: {scores}\n"
+            f"Appearance: {self.options.appearance.toPlainText()[:600]}\n"
+            f"Personality: {self.options.personality.toPlainText()[:800]}\n"
+            f"Existing biography: {self.options.background.toPlainText()[:800]}\n"
+            f"Other DM notes: {self.notes.toPlainText()[:1600]}"
+        )
+        if self.kind == "npc":
+            context += (
+                f"\nNPC size: {self.npc_size.currentText()}"
+                f"\nDM-selected CR: {self.npc_cr.text() or 'Unassigned'}"
+                "\nThe biography must not silently add racial Hit Dice, "
+                "abilities, feats or spells."
+            )
+        mode = "npc_bio" if self.kind == "npc" else "bio"
+        dialog = AIWritingDialog(mode, context[:6000], self)
+        if (dialog.exec() == QDialog.DialogCode.Accepted
+                and dialog.generated_text and dialog.generated_text.strip()):
+            if self.options.background.toPlainText().strip():
+                choice = QMessageBox.question(
+                    self, "Replace existing biography?",
+                    "The biography already contains text. Replace it with "
+                    "the reviewed AI draft? Your other character fields "
+                    "will not be changed.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                if choice != QMessageBox.StandardButton.Yes:
+                    return
             self.options.background.setPlainText(dialog.generated_text)
             self.options.tabs.setCurrentIndex(2)
 

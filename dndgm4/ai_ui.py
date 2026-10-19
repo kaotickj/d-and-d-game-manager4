@@ -81,7 +81,9 @@ class AIWritingDialog(QDialog):
         heading.setObjectName("eyebrow")
         root.addWidget(heading)
         title = QLabel({
-            "bio": "Character Biography",
+            "bio": "Player Character Biography",
+            "npc_bio": "Nonplayer Character Biography",
+            "monster_bio": "Monster Bestiary Biography",
             "dm": "Dungeon Master's Narrator",
             "names": "AI Name Inspiration",
         }[kind])
@@ -114,7 +116,7 @@ class AIWritingDialog(QDialog):
         for display, path in GGUF_MODELS.items():
             self.preset.addItem(display, str(path))
         self.preset.addItem("Custom GGUF file", "")
-        if kind in ("dm", "bio"):
+        if kind in ("dm", "bio", "npc_bio", "monster_bio"):
             self.preset.setCurrentIndex(1)  # Gemma writer is the prose default.
         self.preset.setAccessibleName("Choose Qwen3, Gemma or custom GGUF model")
         self.preset.currentIndexChanged.connect(self._choose_preset)
@@ -233,7 +235,8 @@ class AIWritingDialog(QDialog):
         self.context.setPlainText(context)
         self.context.setPlaceholderText(
             "For DM narration: the party's location, atmosphere and situation.\n"
-            "For character bios: race, class, motivations, tone and constraints."
+            "For biographies: race/species, class or creature type, personality, "
+            "ecology, existing lore and campaign constraints."
         )
         self.context.setMinimumHeight(105)
         self.context.setAccessibleName("Scene or character writing context")
@@ -259,7 +262,10 @@ class AIWritingDialog(QDialog):
         copy.clicked.connect(self.copy_text)
         actions.addWidget(copy)
         actions.addStretch()
-        self.use = QPushButton("Use Draft" if kind in ("bio", "names") else "Close")
+        self.use = QPushButton(
+            "Use Draft" if kind in ("bio", "npc_bio", "monster_bio", "names")
+            else "Close"
+        )
         self.use.clicked.connect(self.accept_draft)
         actions.addWidget(self.use)
         root.addLayout(actions)
@@ -374,7 +380,7 @@ class AIWritingDialog(QDialog):
         self.status.setText("Draft copied to clipboard.")
 
     def accept_draft(self):
-        if self.kind in ("bio", "names") and not self.result.toPlainText().strip():
+        if self.kind in ("bio", "npc_bio", "monster_bio", "names") and not self.result.toPlainText().strip():
             QMessageBox.information(self, "Nothing to use", "Write or generate a draft first.")
             return
         self.generated_text = self.result.toPlainText()

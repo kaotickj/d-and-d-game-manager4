@@ -19,6 +19,7 @@ from .monster_rules import (MonsterBlueprint, TYPES, SIZES, compute_monster,
                              build_monster)
 from .namegen import MONSTER_RACES
 from .name_ui import NamePickerDialog
+from .ai_ui import AIWritingDialog
 
 ARRAYS = {
     "Standard monster (11/11/11/10/10/10)": (11,11,11,10,10,10),
@@ -181,6 +182,20 @@ class MonsterCreatorDialog(QDialog):
         self.la=QLineEdit()
         self.la.setPlaceholderText("Level adjustment if applicable, or —")
         form.addRow("Level adjustment",self.la)
+        self.biography = QPlainTextEdit()
+        self.biography.setPlaceholderText(
+            "Monster ecology, origin, rumors, sightings and adventure hooks. "
+            "Write manually or generate an editable draft with The Scribe."
+        )
+        self.biography.setAccessibleName("Monster biography and bestiary lore")
+        self.biography.setMinimumHeight(155)
+        self.biography.setMaximumHeight(300)
+        form.addRow("Bestiary biography", self.biography)
+        self.bio_button = QPushButton("Generate Monster Biography (Gemma / Qwen3)")
+        self.bio_button.setObjectName("primaryButton")
+        self.bio_button.setAccessibleName("Generate monster bestiary lore with a local writing model")
+        self.bio_button.clicked.connect(self.write_biography)
+        form.addRow("", self.bio_button)
         self.notes=self._edit("Appearance, tactics, story hooks, encounter details")
         self.notes.setMinimumHeight(90)
         form.addRow("Notes",self.notes)
@@ -294,6 +309,7 @@ class MonsterCreatorDialog(QDialog):
             environment=self.environment.text(),organization=self.organization.text(),
             treasure=self.treasure.text(),advancement=self.advancement.text(),
             level_adjustment=self.la.text(),notes=self.notes.toPlainText(),
+            biography=self.biography.toPlainText(),
             hp_method=self.hp_method.currentData(),
             manual_hit_points=self.manual_hp.value())
 
@@ -304,6 +320,49 @@ class MonsterCreatorDialog(QDialog):
             self.name.setText(picker.selected_name)
             if not self.species.currentText().strip():
                 self.species.setCurrentText(picker.race.currentText())
+
+    def write_biography(self):
+        """Let either local writing model draft lore without changing stats."""
+        attributes = ", ".join(
+            f"{name[:3].upper()} "
+            f"{'No score' if (name == 'constitution' and self.no_con.isChecked()) or (name == 'intelligence' and self.no_int.isChecked()) else box.value()}"
+            for name, box in self.ability_fields.items()
+        )
+        context = "\n".join((
+            f"Name: {self.name.text() or 'Unnamed creature'}",
+            f"Species: {self.species.currentText() or 'Original species'}",
+            f"Type: {self.type.currentText()}; subtype: {self.subtype.text()}",
+            f"Size: {self.size.currentText()}; racial Hit Dice: {self.hd.value()}",
+            f"Ability scores: {attributes}",
+            f"Intelligence: {'Mindless' if self.no_int.isChecked() else str(self.ability_fields['intelligence'].value())}",
+            f"Alignment: {self.alignment.text()}",
+            f"Environment: {self.environment.text()}",
+            f"Organization: {self.organization.text()}",
+            f"Speed: {self.speed.text()}",
+            f"Attacks: {self.attacks.toPlainText()[:550]}",
+            f"Special attacks: {self.special_attacks.toPlainText()[:550]}",
+            f"Special qualities: {self.special_qualities.toPlainText()[:550]}",
+            f"Selected feats: {self.feats.toPlainText()[:300]}",
+            f"Selected skills: {self.skills.toPlainText()[:300]}",
+            f"Existing lore: {self.biography.toPlainText()[:800]}",
+            f"DM notes: {self.notes.toPlainText()[:800]}",
+            "Create story and ecology, not new game rules or a stat block.",
+        ))
+        dialog = AIWritingDialog("monster_bio", context[:6000], self)
+        if (dialog.exec() == QDialog.DialogCode.Accepted
+                and dialog.generated_text and dialog.generated_text.strip()):
+            if self.biography.toPlainText().strip():
+                choice = QMessageBox.question(
+                    self, "Replace existing monster biography?",
+                    "The bestiary biography already contains text. Replace it "
+                    "with the reviewed AI draft? Monster statistics and DM "
+                    "notes will remain unchanged.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if choice != QMessageBox.StandardButton.Yes:
+                    return
+            self.biography.setPlainText(dialog.generated_text)
 
     def save_monster(self):
         try:
@@ -344,6 +403,7 @@ class MonsterCreatorDialog(QDialog):
                          ("special_qualities",self.special_qualities),
                          ("skills",self.skills),("notes",self.notes)):
             ctrl.setPlainText(data.get(key,""))
+        self.biography.setPlainText(data.get("biography", ""))
         self.feats.setPlainText("\n".join(data.get("feats",[])))
         for key,ctrl in (("alignment",self.alignment),
                          ("environment",self.environment),

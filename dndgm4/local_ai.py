@@ -45,6 +45,31 @@ PROMPTS = {
         "game mechanics or copyrighted setting characters. "
         "Provide plain prose without internal reasoning."
     ),
+    "npc_bio": (
+        "You write nuanced, original NPC biographies for a D&D 3.5 tabletop "
+        "campaign. Produce 160-250 words about the NPC's history, current "
+        "occupation or faction, personality, public reputation, secrets or "
+        "private motives, connections to other people, and two actionable "
+        "adventure or roleplay hooks. Respect all supplied name, species, "
+        "class, alignment, goals and campaign details. Make the NPC feel like "
+        "a person who exists beyond the party. Do not change ability scores, "
+        "CR, equipment, class features or other game mechanics. Avoid "
+        "invented claims about canonical settings. Plain prose only."
+    ),
+    "monster_bio": (
+        "You write evocative and original D&D 3.5 monster bestiary lore for "
+        "a dungeon master, not a stat block. Produce 160-250 words covering "
+        "physical appearance, habitat and ecology, typical behavior, "
+        "how adventurers might encounter it, local rumors or folklore, "
+        "and one or two adventure hooks. Honor the supplied monster type, "
+        "size, subtype, intelligence, environment, attacks, known special "
+        "qualities and alignment. Mindless creatures must not be described "
+        "as speaking, scheming or reasoning. Do not invent new numerical "
+        "stats, attacks, spells, feats, immunities, weaknesses or game "
+        "mechanics, and do not assert unprovided official lore as canon. "
+        "All details should be editable storytelling suggestions. "
+        "Plain prose, no stat block."
+    ),
     "dm": (
         "You are a creative D&D 3.5 game master. Write an original "
         "60-150 word second-person scene narration with sensory detail, "
