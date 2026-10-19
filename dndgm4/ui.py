@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QButtonGroup, QCheckBox, QDialog, QFormLayout, QFrame, QGridLayout,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
     QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
-    QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QSizePolicy,
 )
 
 from . import __version__
@@ -21,6 +21,55 @@ from .ai_ui import AIWritingDialog
 
 ABILITIES = (("strength", "STR"), ("dexterity", "DEX"), ("constitution", "CON"),
              ("intelligence", "INT"), ("wisdom", "WIS"), ("charisma", "CHA"))
+
+class SquareAbilityGrid(QWidget):
+    """Six fluid 1:1 score tiles; never allow the preview to flatten them.
+
+    A fixed 76px box is too small at ordinary desktop widths, while normal
+    grid cells get vertically squeezed by the crowded record-detail pane.
+    Calculate square dimensions from the available grid width, cap them to
+    a readable range, then reserve the correct two-row height.
+    """
+    GAP = 8
+    MIN_EDGE = 80
+    MAX_EDGE = 112
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("abilityScoreGrid")
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.tiles = []
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setHorizontalSpacing(self.GAP)
+        self.grid.setVerticalSpacing(self.GAP)
+        for col in range(3):
+            self.grid.setColumnStretch(col, 1)
+        self._edge = 0
+        self._set_edge(self.MIN_EDGE)
+
+    def add_tile(self, tile, index):
+        self.tiles.append(tile)
+        self.grid.addWidget(tile, index // 3, index % 3,
+                            Qt.AlignmentFlag.AlignCenter)
+        tile.setFixedSize(self._edge, self._edge)
+
+    def _set_edge(self, edge):
+        if self._edge == edge:
+            return
+        self._edge = edge
+        for tile in self.tiles:
+            tile.setFixedSize(edge, edge)
+        # Reserve full height for BOTH rows; QVBoxLayout must not squeeze
+        # scores into horizontal strips, even when the preview is short.
+        self.setFixedHeight(edge * 2 + self.GAP)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        available = max(0, event.size().width() - 2 * self.GAP)
+        edge = min(self.MAX_EDGE, max(self.MIN_EDGE, available // 3))
+        self._set_edge(edge)
+
 
 def caption(text, role="", wrap=False):
     widget = QLabel(text)
@@ -391,9 +440,26 @@ class MainWindow(QMainWindow):
         preview = QFrame()
         preview.setObjectName("panel")
         preview.setMinimumWidth(0)
-        details = QVBoxLayout(preview)
+        # Only the record-detail content scrolls when vertical space runs
+        # short. The outer preview panel and the rest of the GUI stay put.
+        # This prevents Qt from squeezing the square score cards to make
+        # room for Notes and action buttons.
+        preview_outer = QVBoxLayout(preview)
+        preview_outer.setContentsMargins(0, 0, 0, 0)
+        preview_scroll = QScrollArea()
+        preview_scroll.setObjectName("recordPreviewScroll")
+        preview_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        preview_scroll.setWidgetResizable(True)
+        preview_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        content = QWidget()
+        details = QVBoxLayout(content)
         details.setContentsMargins(20, 18, 20, 16)
         details.setSpacing(12)
+        preview_scroll.setWidget(content)
+        preview_outer.addWidget(preview_scroll)
+        self.preview_scroll = preview_scroll
         details.addWidget(caption("SELECTED RECORD", "eyebrow"))
         self.preview_title = caption("Choose a record", "detailTitle", wrap=True)
         details.addWidget(self.preview_title)
@@ -403,16 +469,12 @@ class MainWindow(QMainWindow):
         self.detail = caption("", "muted", wrap=True)
         details.addWidget(self.detail)
         details.addWidget(caption("Ability Scores", "sectionTitle"))
-        scores = QGridLayout()
-        scores.setSpacing(8)
+        scores = SquareAbilityGrid()
+        self.ability_score_grid = scores
         self.stat_values = {}
-        # Never let the record preview's vertical layout squash the six
-        # ability tiles into wide, almost-flat rectangles. Fixed square
-        # frames remain legible in both the stacked and side-by-side views.
         for i, (attribute, code) in enumerate(ABILITIES):
             tile = QFrame()
             tile.setObjectName("statChip")
-            tile.setFixedSize(76, 76)
             tile.setAccessibleName(f"{code} ability score")
             tile_layout = QVBoxLayout(tile)
             tile_layout.setContentsMargins(8, 7, 8, 7)
@@ -424,12 +486,8 @@ class MainWindow(QMainWindow):
             value.setAlignment(Qt.AlignmentFlag.AlignCenter)
             tile_layout.addWidget(value)
             self.stat_values[attribute] = value
-            scores.addWidget(tile, *divmod(i, 3),
-                             Qt.AlignmentFlag.AlignCenter)
-        # Keep all six score chips evenly spaced at every supported width.
-        for column in range(3):
-            scores.setColumnStretch(column, 1)
-        details.addLayout(scores)
+            scores.add_tile(tile, i)
+        details.addWidget(scores)
         details.addWidget(caption("Notes", "sectionTitle"))
         self.notes_preview = QPlainTextEdit()
         self.notes_preview.setReadOnly(True)

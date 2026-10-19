@@ -166,3 +166,17 @@ goal is to share model files already used in the Goodneighbor writer.
 
 Drafts remain editable. No changes were made to the main fantasy banner,
 six ability-score squares, database, character rules, or other GUI layout.
+
+## v0.5.5: Fluid, readable square ability-score frames
+
+The v0.5.3 quick fix made all six ability-score boxes a tiny fixed 76x76.
+That prevented stretching but cramped the actual STR/DEX/CON/INT/WIS/CHA
+display. v0.5.5 replaces it with a small dedicated ability-score grid:
+the cards remain exactly **1:1 square** and grow/shrink with the available
+preview width within a legible **80-112 logical pixel** range. Each card
+keeps its full abbreviation and numerical value.
+
+When the available panel height is small, **only the Selected Record
+preview's content scrolls** rather than crushing the ability cards to
+make room for Notes and buttons. The original banner, sidebar, overall
+window layout, record data, and D&D mechanics remain unchanged.

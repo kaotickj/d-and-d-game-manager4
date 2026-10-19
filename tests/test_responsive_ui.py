@@ -32,7 +32,7 @@ class ResponsiveLayoutTests(unittest.TestCase):
         banner.close()
 
     def test_six_ability_tiles_stay_square_and_legible_when_resized(self):
-        from PyQt6.QtWidgets import QFrame, QLabel
+        from PyQt6.QtWidgets import QFrame, QLabel, QScrollArea
         from PyQt6.QtCore import Qt
         from dndgm4.models import Creature
         from dndgm4.storage import CreatureRepository
@@ -45,8 +45,8 @@ class ResponsiveLayoutTests(unittest.TestCase):
                 intelligence=12, wisdom=10, charisma=8,
             ))
             window = MainWindow(library)
-            for width, height in ((895, 640), (1200, 780), (1490, 920),
-                                  (800, 540)):
+            for width, height in ((895, 640), (1200, 780), (1380, 840),
+                                  (1490, 920), (800, 540)):
                 with self.subTest(width=width, height=height):
                     window.resize(width, height)
                     window.show()
@@ -60,15 +60,24 @@ class ResponsiveLayoutTests(unittest.TestCase):
                     self.app.processEvents()
                     tiles = window.findChildren(QFrame, "statChip")
                     self.assertEqual(len(tiles), 6)
+                    self.assertIsInstance(window.preview_scroll, QScrollArea)
+                    self.assertEqual(window.preview_scroll.objectName(),
+                                     "recordPreviewScroll")
+                    grid = window.ability_score_grid
+                    self.assertEqual(grid.height(), 2 * grid._edge + grid.GAP)
+                    self.assertGreaterEqual(grid._edge, 80)
+                    self.assertLessEqual(grid._edge, 112)
                     for tile in tiles:
                         self.assertEqual(tile.width(), tile.height())
-                        self.assertEqual(tile.size().width(), 76)
+                        self.assertEqual(tile.size().width(), grid._edge)
                         captions = tile.findChildren(QLabel)
                         self.assertEqual(len(captions), 2)
                         for label in captions:
                             self.assertGreater(label.height(), 0)
                             self.assertGreaterEqual(label.y(), 0)
                             self.assertLessEqual(label.y() + label.height(), tile.height())
+                            self.assertGreaterEqual(label.width(),
+                                label.fontMetrics().horizontalAdvance(label.text()))
                     self.assertEqual(window.hero_banner.height(), 166)
             self.assertEqual(
                 {k: v.text() for k, v in window.stat_values.items()},
