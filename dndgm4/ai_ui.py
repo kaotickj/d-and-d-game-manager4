@@ -148,6 +148,16 @@ class AIWritingDialog(QDialog):
         self.runtime_row.setLayout(runtime_line)
         root.addWidget(self.runtime_row)
 
+        self.performance_toggle = QPushButton("Performance settings  ▸  CPU threads / model cache")
+        self.performance_toggle.setCheckable(True)
+        self.performance_toggle.setAccessibleName("Show performance settings")
+        self.performance_toggle.toggled.connect(self._toggle_performance)
+        root.addWidget(self.performance_toggle)
+        self.performance_panel = QWidget()
+        performance = QVBoxLayout(self.performance_panel)
+        performance.setContentsMargins(0, 0, 0, 0)
+        performance.setSpacing(7)
+
         gpu_line = QHBoxLayout()
         gpu_line.addWidget(QLabel("GPU layers"))
         self.gpu_layers = QSpinBox()
@@ -165,7 +175,7 @@ class AIWritingDialog(QDialog):
         gpu_line.addStretch()
         self.gpu_row = QWidget()
         self.gpu_row.setLayout(gpu_line)
-        root.addWidget(self.gpu_row)
+        performance.addWidget(self.gpu_row)
 
         threads_layout = QHBoxLayout()
         threads_layout.addWidget(QLabel("CPU threads"))
@@ -195,7 +205,7 @@ class AIWritingDialog(QDialog):
         threads_layout.addStretch()
         self.threads_row = QWidget()
         self.threads_row.setLayout(threads_layout)
-        root.addWidget(self.threads_row)
+        performance.addWidget(self.threads_row)
 
         warm_line = QHBoxLayout()
         self.keep_loaded = QCheckBox("Keep the selected model loaded for the next prompt")
@@ -214,7 +224,9 @@ class AIWritingDialog(QDialog):
         warm_line.addWidget(self.unload_button)
         self.warm_row = QWidget()
         self.warm_row.setLayout(warm_line)
-        root.addWidget(self.warm_row)
+        performance.addWidget(self.warm_row)
+        root.addWidget(self.performance_panel)
+        self.performance_panel.setVisible(False)
 
         root.addWidget(QLabel("Prompt / Campaign Details"))
         self.context = QPlainTextEdit()
@@ -259,14 +271,24 @@ class AIWritingDialog(QDialog):
         if model_path:
             self.model.setText(model_path)
 
+    def _toggle_performance(self, enabled):
+        self.performance_panel.setVisible(
+            enabled and self.backend.currentData() == "gguf"
+        )
+        self.performance_toggle.setText(
+            "Performance settings  ▾  CPU threads / model cache" if enabled
+            else "Performance settings  ▸  CPU threads / model cache"
+        )
+
     def _update_engine(self, *args):
         gguf = self.backend.currentData() == "gguf"
         self.preset_row.setVisible(gguf)
         self.browse_model.setVisible(gguf)
         self.runtime_row.setVisible(gguf)
-        self.gpu_row.setVisible(gguf)
-        self.threads_row.setVisible(gguf)
-        self.warm_row.setVisible(gguf)
+        self.performance_toggle.setVisible(gguf)
+        self.performance_panel.setVisible(
+            gguf and self.performance_toggle.isChecked()
+        )
         if gguf:
             self._choose_preset()
             self.status.setText(
