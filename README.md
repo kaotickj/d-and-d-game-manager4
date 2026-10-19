@@ -323,3 +323,31 @@ including native CPU threading and the optional warm-model cache added in
 v0.6.1. There are no model downloads or cloud API requirements. This
 milestone does not alter the main window layout, sidebar, banner, ability
 score tiles, character stats, monster arithmetic or database schema.
+
+
+## v0.6.4: Restore reliable local AI and separate narrator window
+
+**Restored the v0.6.0 single-request GGUF generation path.** Native
+`--threads` / `--threads-batch` overrides, model caching, reuse and the
+background persistent llama-server manager from v0.6.1 are removed because
+they caused failures on some Windows setups. The Scribe now starts a local
+llama-server on 127.0.0.1 per request, generates the text, and always
+terminates that engine afterward, including when inference fails.
+The model selector, existing Gemma/Qwen3 files, optional GPU layers,
+NPC/monster/player biography modes and Ollama option are retained.
+The existing PyQt background worker remains so generating text doesn't freeze
+the GUI; that does *not* change llama.cpp's CPU threading configuration.
+
+**Closing The Scribe narrator no longer closes D&D Game Manager 4.** The
+sidebar narrator uses a separately shown nonmodal dialog, with the main
+window owning its lifetime. Closing the narrator returns to the visible
+Compendium. The narrator window explicitly disables the Qt close-to-quit
+attribute, and reopening the narrator focuses its existing window instead
+of creating a second one. Other generation dialogs continue to behave
+normally. No D&D rules, character data, monster calculations or main
+window artwork/layout was modified.
+
+Regression coverage includes single-use launch arguments, no cached model,
+cleanup on errors, and Windows GUI tests to assert that the main window
+remains visible after the Scribe is closed. The v0.6.1 Performance settings
+and warm-model instructions above are **superseded** by this rollback.
