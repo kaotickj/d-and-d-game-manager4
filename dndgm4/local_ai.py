@@ -2,7 +2,7 @@
 
 The model files are *not* downloaded, copied, modified, or bundled.
 GGUF inference uses a separately installed llama.cpp llama-server executable,
-started for the duration of a single request on an ephemeral loopback port.
+optionally retained between requests on a localhost-only ephemeral port.
 Qwen3-TTS from Voice Studio is a speech model, not a writing model.
 """
 from __future__ import annotations
@@ -180,6 +180,9 @@ class _GGUFSession:
                 stdin=subprocess.DEVNULL, creationflags=flags)
             _wait_for_server(self.process, self.url, time.monotonic() + 120,
                              self.log)
+        except OSError as exc:
+            self.close()
+            raise LocalAIError(f"Unable to launch llama-server: {exc}") from exc
         except Exception:
             self.close()
             raise
