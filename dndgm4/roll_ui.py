@@ -460,6 +460,8 @@ class CharacterCreatorDialog(QDialog):
             f"Racial ability modifiers: {race_mods or RACIAL_ADJUSTMENTS.get(race,{})}\n"
             f"Character name preference: {self.name.text() or '(invent a name)'}\n"
             f"Desired alignment: {self.options.alignment.currentText()}\n"
+            f"Desired gender: {self.options.gender.currentText()}\n"
+            f"Desired age or life stage: {self.options.age.text() or '(generate appropriate age)'}\n"
             f"Relevant notes/biography: {self.notes.toPlainText()[:500]}\n"
             "Feat selections: 1 normally, +1 human, +1 fighter bonus. "
             "Power Attack requires STR 13; Cleave requires Power Attack; "
@@ -476,7 +478,10 @@ class CharacterCreatorDialog(QDialog):
         try:
             proposal=validate_draft(parse_draft(writer.generated_text),
                 race=race,class_name=class_name,kind=self.kind,
-                racial_modifiers=race_mods)
+                racial_modifiers=race_mods,
+                desired_gender=("" if self.options.gender.currentText()=="Unspecified"
+                                else self.options.gender.currentText()),
+                desired_age=self.options.age.text())
         except ValueError as exc:
             QMessageBox.warning(self,"AI character draft failed rules checks",
                 str(exc)+"\nEdit the AI draft and try again; the character "
@@ -500,6 +505,8 @@ class CharacterCreatorDialog(QDialog):
         self.options.appearance.setPlainText(proposal["appearance"])
         self.options.personality.setPlainText(proposal["personality"])
         self.options.background.setPlainText(proposal["biography"])
+        self.options.gender.setCurrentText(proposal["gender"] or "Unspecified")
+        self.options.age.setText(proposal["age"])
         self.notes.setPlainText(proposal["notes"])
         self.ai_draft_applied=True
         self.message.setText(
@@ -584,6 +591,8 @@ class CharacterCreatorDialog(QDialog):
             f"Race: {self.race.currentText()}\n"
             f"Class: {self.options.current_class()}\n"
             f"Alignment: {self.options.alignment.currentText()}\n"
+            f"Gender: {self.options.gender.currentText()}\n"
+            f"Age / life stage: {self.options.age.text() or 'Unspecified'}\n"
             f"Ability scores: {scores}\n"
             f"Appearance: {self.options.appearance.toPlainText()[:600]}\n"
             f"Personality: {self.options.personality.toPlainText()[:800]}\n"
