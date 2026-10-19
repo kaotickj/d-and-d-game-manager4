@@ -203,7 +203,9 @@ def build_sheet(*, character: Creature, class_name: str, ranks: dict[str,int],
                 personality: str, background: str, custom_hd: int = 8,
                 custom_sp: int = 4, custom_class_skills: list[str] | None = None,
                 class_features: list[str] | None = None,
-                spell_notes: str = "", extra_notes: str = "") -> Creature:
+                spell_notes: str = "", extra_notes: str = "",
+                spellbook: dict | None = None, inventory: list[dict] | None = None,
+                strict_feats: bool = False) -> Creature:
     """Attach validated structured selections without discarding base rolls."""
     from dataclasses import replace
     if alignment not in ALIGNMENTS:
@@ -222,6 +224,23 @@ def build_sheet(*, character: Creature, class_name: str, ranks: dict[str,int],
         raise ValueError("Too many feats or equipment lines.")
     if any(len(x)>180 for x in feats+equipment+languages):
         raise ValueError("One or more entries are too long.")
+    from .build_rules import feat_review, inventory_from_text
+    from .spell_rules import validate_spellbook
+    score_values = {ability:getattr(character,ability) for ability in ABILITIES}
+    # This is opt-in strict for the guided and AI paths. Existing character
+    # sheets and supplemental classes remain editable, with warnings.
+    feat_warnings = feat_review(
+        feats,score_values,class_name=class_name,race=character.race_type,
+        bab=1 if class_name in ("Fighter","Barbarian","Ranger","Paladin") else 0,
+        strict=strict_feats and class_name in CORE_CLASSES)
+    validated_spells = (
+        validate_spellbook(class_name, score_values, spellbook)
+        if spellbook is not None else None
+    )
+    structured_inventory = (inventory if inventory is not None else
+                            inventory_from_text("\n".join(equipment)))
+    if not isinstance(structured_inventory,list) or len(structured_inventory)>150:
+        raise ValueError("Invalid inventory entries.")
     data = {
         "version": 1, "class": class_name,
         "supplemental_template": t.supplement,
@@ -236,6 +255,8 @@ def build_sheet(*, character: Creature, class_name: str, ranks: dict[str,int],
         "appearance": appearance.strip(), "personality": personality.strip(),
         "background": background.strip(), "class_features": class_features or [],
         "spell_notes": spell_notes.strip(), "extra_notes": extra_notes.strip(),
+        "spellbook":validated_spells, "inventory":structured_inventory,
+        "feat_review_warnings":feat_warnings,
         "validation": "Skill budget checked; feat and equipment eligibility require GM review.",
     }
     return replace(character, character_class=class_name,

@@ -19,6 +19,9 @@ from .character_sheet import TEMPLATES, NPC_CLASS_TEMPLATES, skill_budget
 from .npc_races import NPC_RACES, NPC_RACE_NAMES
 from .sheet_ui import SheetOptions
 from .ai_ui import AIWritingDialog
+from .ai_character import parse_draft, validate_draft
+from .spell_rules import CASTERS, SPELL_LISTS, spell_profile
+from .build_rules import feat_review, inventory_from_text
 
 
 def text_label(value: str, role: str = "", *, wrap: bool = False) -> QLabel:
@@ -157,6 +160,7 @@ class CharacterCreatorDialog(QDialog):
         self.resize(790, 810)
         self.setMinimumSize(650, 590)
         self.result_creature = None
+        self.ai_draft_applied = False
         self.session = CreationSession()
         self.score_inputs = {}
         self.roll_details = {}
@@ -177,6 +181,44 @@ class CharacterCreatorDialog(QDialog):
         body = QVBoxLayout(sheet)
         body.setContentsMargins(5, 5, 17, 5)
         body.setSpacing(15)
+
+        # One Forge, three creation entry points. The selected route only
+        # changes how fields are populated and validated, never the schema.
+        creation = QFrame()
+        creation.setObjectName("panel")
+        routes = QVBoxLayout(creation)
+        routes.setContentsMargins(18, 15, 18, 15)
+        routes.addWidget(text_label("Choose a character creation approach",
+                                    "sectionTitle"))
+        self.creation_mode = QComboBox()
+        self.creation_mode.addItem("1. Class Default (editable SRD starter)", "default")
+        self.creation_mode.addItem("2. AI Generated (Gemma / Qwen3, then review)", "ai")
+        self.creation_mode.addItem("3. Custom Guided (3.5 creation steps)", "guided")
+        self.creation_mode.setAccessibleName("Character creation route")
+        routes.addWidget(self.creation_mode)
+        self.ai_build_button = QPushButton("Generate Complete Character Draft")
+        self.ai_build_button.setObjectName("primaryButton")
+        routes.addWidget(self.ai_build_button)
+        guides = QHBoxLayout()
+        self.guide_back = QPushButton("Previous Step")
+        self.guide_step = QComboBox()
+        self.guide_step.addItems((
+            "1. Race, class and identity",
+            "2. Roll or assign abilities",
+            "3. Class features, feats and gear",
+            "4. Assign skill ranks",
+            "5. Spells and spellbooks",
+            "6. Inventory",
+            "7. Biography and review",
+        ))
+        self.guide_next = QPushButton("Next Step")
+        guides.addWidget(self.guide_back)
+        guides.addWidget(self.guide_step, 1)
+        guides.addWidget(self.guide_next)
+        self.guide_controls = QWidget()
+        self.guide_controls.setLayout(guides)
+        routes.addWidget(self.guide_controls)
+        body.addWidget(creation)
 
         identity = QFrame()
         identity.setObjectName("panel")
@@ -332,6 +374,9 @@ class CharacterCreatorDialog(QDialog):
         self.bio_button.clicked.connect(self.write_biography)
         body.addWidget(self.bio_button)
         scroll.setWidget(sheet)
+        self.creator_scroll = scroll
+        self.identity_panel = identity
+        self.ability_panel = methods
         outer.addWidget(scroll, 1)
         self.message = text_label("Roll your scores to start.", "muted", wrap=True)
         outer.addWidget(self.message)
@@ -342,9 +387,125 @@ class CharacterCreatorDialog(QDialog):
         buttons.accepted.connect(self.save_character)
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
+        self.creation_mode.currentIndexChanged.connect(self.change_creation_mode)
+        self.ai_build_button.clicked.connect(self.generate_complete_character)
+        self.guide_step.currentIndexChanged.connect(self.show_creation_step)
+        self.guide_next.clicked.connect(lambda: self.guide_step.setCurrentIndex(
+            min(6,self.guide_step.currentIndex()+1)))
+        self.guide_back.clicked.connect(lambda: self.guide_step.setCurrentIndex(
+            max(0,self.guide_step.currentIndex()-1)))
         self.change_method()
+        self.change_creation_mode()
         if self.original is not None:
             self.load_character(self.original)
+
+    def change_creation_mode(self,*args):
+        mode=self.creation_mode.currentData()
+        self.ai_build_button.setVisible(mode=="ai")
+        self.guide_controls.setVisible(mode=="guided")
+        if mode=="default":
+            self.options.build_mode.setCurrentIndex(0)
+            self.options.apply_preset()
+        elif mode in ("ai","guided"):
+            # AI/guided routes begin in editable mode. Don't wipe the user's
+            # existing fields when just switching between the two.
+            self.options.build_mode.setCurrentIndex(1)
+            if mode=="guided":
+                self.guide_step.setCurrentIndex(0)
+        self.message.setText(
+            "Class default: editable suggested feats, skills, gear and spells."
+            if mode=="default" else
+            "AI: generate, inspect, adjust, then save a rule-checked draft."
+            if mode=="ai" else
+            "Custom guided: follow the seven 3.5 character creation steps.")
+
+    def show_creation_step(self,*args):
+        if self.creation_mode.currentData()!="guided":
+            return
+        step=self.guide_step.currentIndex()
+        if step in (0,1):
+            self.creator_scroll.ensureWidgetVisible(
+                self.identity_panel if step==0 else self.ability_panel)
+        else:
+            self.options.tabs.setCurrentIndex(
+                {2:0,3:1,4:3,5:4,6:2}[step])
+            self.creator_scroll.ensureWidgetVisible(self.options)
+        self.guide_back.setEnabled(step>0)
+        self.guide_next.setEnabled(step<6)
+
+    def generate_complete_character(self):
+        if self.options.is_custom():
+            QMessageBox.warning(self,"AI build requires a verified class",
+                "For a homebrew class, choose Custom Guided and enter "
+                "its rules manually.")
+            return
+        class_name=self.options.current_class()
+        if class_name=="Expert":
+            QMessageBox.warning(self,"Expert requires manual choices",
+                "Select ten class skills in Custom Guided for Expert.")
+            return
+        race=self.race.currentText()
+        if self.kind=="npc" and race not in NPC_RACES:
+            QMessageBox.warning(self,"NPC ancestry needs manual review",
+                "Unverified NPC race mechanics require Custom Guided.")
+            return
+        source=SPELL_LISTS.get(class_name,{})
+        spells=" | ".join(
+            f"level {level}: {', '.join(names)}"
+            for level,names in source.items())
+        race_mods=self.racial_modifiers()
+        context=(
+            f"Kind: {self.kind}\nRace: {race}\nClass: {class_name}\n"
+            "Level: 1 only; D&D 3.5 SRD rules.\n"
+            f"Racial ability modifiers: {race_mods or RACIAL_ADJUSTMENTS.get(race,{})}\n"
+            f"Character name preference: {self.name.text() or '(invent a name)'}\n"
+            f"Desired alignment: {self.options.alignment.currentText()}\n"
+            f"Relevant notes/biography: {self.notes.toPlainText()[:500]}\n"
+            "Feat selections: 1 normally, +1 human, +1 fighter bonus. "
+            "Power Attack requires STR 13; Cleave requires Power Attack; "
+            "Dodge requires DEX 13; Combat Expertise requires INT 13.\n"
+            f"SRD class spell catalog: {spells or 'No first-level spells'}\n"
+            "Skills use half-rank ticks: 8 for four class ranks, "
+            "4 for two cross-class ranks. Stay within the class skill budget. "
+            "Return exact JSON matching the system instructions, "
+            "and write a distinct full original character biography."
+        )[:5800]
+        writer=AIWritingDialog("character_build",context,self)
+        if writer.exec()!=QDialog.DialogCode.Accepted or not writer.generated_text:
+            return
+        try:
+            proposal=validate_draft(parse_draft(writer.generated_text),
+                race=race,class_name=class_name,kind=self.kind,
+                racial_modifiers=race_mods)
+        except ValueError as exc:
+            QMessageBox.warning(self,"AI character draft failed rules checks",
+                str(exc)+"\nEdit the AI draft and try again; the character "
+                "was not modified or saved.")
+            return
+        self.method.setCurrentIndex(2)
+        for name,field in self.score_inputs.items():
+            field.setValue(proposal["base_scores"][name])
+        self.name.setText(proposal["name"])
+        self.options.build_mode.setCurrentIndex(1)
+        self.options.feats.setPlainText("\n".join(proposal["feats"]))
+        self.options.equipment.setPlainText("\n".join(proposal["equipment"]))
+        self.options.inventory.setPlainText(proposal["inventory"])
+        self.options.features.setPlainText("\n".join(proposal["class_features"]))
+        for name,field in self.options.skill_fields.items():
+            field.setValue(proposal["skills_half_ranks"].get(name,0)/2)
+        self.options.fill_spellbook(proposal["spellbook"])
+        self.options.alignment.setCurrentText(proposal["alignment"])
+        self.options.deity.setText(proposal["deity"])
+        self.options.languages.setText(", ".join(proposal["languages"]))
+        self.options.appearance.setPlainText(proposal["appearance"])
+        self.options.personality.setPlainText(proposal["personality"])
+        self.options.background.setPlainText(proposal["biography"])
+        self.notes.setPlainText(proposal["notes"])
+        self.ai_draft_applied=True
+        self.message.setText(
+            "AI draft validated and loaded. Review all equipment, feat "
+            "details, special abilities, domain spells and inventory before saving.")
+        self.update_totals()
 
     def refresh_recommendations(self, *args):
         if hasattr(self, "options") and self.options.build_mode.currentIndex()==0:
@@ -545,6 +706,8 @@ class CharacterCreatorDialog(QDialog):
                                 "Roll all six ability scores before saving.")
             return
         try:
+            if self.creation_mode.currentData()=="ai" and not self.ai_draft_applied:
+                raise ValueError("Generate and review an AI character draft before saving.")
             class_name = self.options.current_class()
             if not class_name:
                 raise ValueError("Enter a name for the custom class.")
@@ -567,6 +730,20 @@ class CharacterCreatorDialog(QDialog):
                 size_override=self.npc_size.currentText() if self.kind=="npc" else None,
             )
             created=self.options.finish(created)
+            if self.creation_mode.currentData() in ("guided","ai"):
+                from .build_rules import feat_review
+                from .character_sheet import CORE_CLASSES
+                if class_name in CORE_CLASSES:
+                    issues=feat_review(
+                        [x.strip() for x in self.options.feats.toPlainText().splitlines()
+                         if x.strip()],
+                        self.final_scores(),class_name=class_name,
+                        race=self.race.currentText(),
+                        bab=1 if class_name in ("Fighter","Barbarian","Ranger","Paladin") else 0,
+                        strict=True)
+                    if issues:
+                        raise ValueError("Unverified feat selections: "+
+                                         "; ".join(issues))
             if self.kind == "npc":
                 metadata=json.loads(created.sheet_json)
                 profile=NPC_RACES.get(self.race.currentText())
