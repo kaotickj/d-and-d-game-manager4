@@ -96,7 +96,15 @@ class ForgeUiTests(unittest.TestCase):
                 dlg.assert_called_once()
             win.close()
         d=AIWritingDialog("bio","a human ranger")
-        self.assertEqual(d.model.text(),"qwen3:4b")
+        from dndgm4.local_ai import GGUF_MODELS, DEFAULT_OLLAMA_MODEL
+        self.assertEqual(d.backend.currentData(), "gguf")
+        self.assertEqual(d.model.text(), str(GGUF_MODELS["Gemma The Writer 9B (GGUF)"]))
+        d.preset.setCurrentIndex(0)
+        self.assertEqual(d.model.text(), str(GGUF_MODELS["Qwen3 4B Instruct (GGUF)"]))
+        d.backend.setCurrentIndex(1)
+        self.assertEqual(d.model.text(), DEFAULT_OLLAMA_MODEL)
+        d.backend.setCurrentIndex(0)
+        self.assertEqual(d.model.text(), str(GGUF_MODELS["Qwen3 4B Instruct (GGUF)"]))
         self.assertFalse(d.worker)
         d.close()
 
