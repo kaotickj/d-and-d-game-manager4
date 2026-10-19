@@ -23,6 +23,7 @@ class NamePickerDialog(QDialog):
                  engine: NameEngine | None = None, parent=None,
                  standalone: bool = False):
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.setWindowTitle("RPG Name Genie | D&D Game Manager 4")
         self.setWindowIcon(window_icon())
         self.resize(730, 770)
