@@ -103,12 +103,16 @@ class ForgeUiTests(unittest.TestCase):
         from dndgm4.ui import MainWindow
         from PyQt6.QtCore import Qt
         with TemporaryDirectory() as tmp:
+            print('Scribe regression: constructing main window', flush=True)
             win = MainWindow(CreatureRepository(Path(tmp) / "library.sqlite3"))
+            print('Scribe regression: showing main', flush=True)
             win.show()
             self.app.processEvents()
             self.assertTrue(win.isVisible())
+            print('Scribe regression: opening narrator', flush=True)
             win.open_narrator()
             self.app.processEvents()
+            print('Scribe regression: reading dialog', flush=True)
             narrator = win._narrator_dialog
             self.assertIsNotNone(narrator)
             self.assertTrue(narrator.isVisible())
@@ -116,6 +120,7 @@ class ForgeUiTests(unittest.TestCase):
             self.assertEqual(narrator.windowModality(), Qt.WindowModality.NonModal)
             win.open_narrator()
             self.assertIs(win._narrator_dialog, narrator)
+            print('Scribe regression: closing narrator', flush=True)
             narrator.close()
             self.app.processEvents()
             self.assertTrue(win.isVisible())
@@ -127,10 +132,12 @@ class ForgeUiTests(unittest.TestCase):
             self.app.processEvents()
             self.assertIs(win._narrator_dialog, narrator)
             self.assertTrue(narrator.isVisible())
+            print('Scribe regression: clicking close', flush=True)
             narrator.use.click()
             self.app.processEvents()
             self.assertTrue(win.isVisible())
             self.assertFalse(narrator.isVisible())
+            print('Scribe regression: closing main', flush=True)
             win.close()
 
     def test_dm_sidebar_action_and_local_ai_no_auto_calls(self):
