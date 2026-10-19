@@ -8,6 +8,26 @@ from dndgm4 import local_ai
 
 
 class LocalWriterTests(unittest.TestCase):
+    def test_npc_and_monster_bios_use_distinct_rule_safe_prompts(self):
+        for kind, expected in (
+            ("bio", "character biography"),
+            ("npc_bio", "NPC biographies"),
+            ("monster_bio", "monster bestiary lore"),
+        ):
+            with self.subTest(kind=kind):
+                self.assertIn(expected, local_ai.PROMPTS[kind])
+                with patch.object(local_ai, "_post_json",
+                                  return_value={"response": "A useful draft."}) as request:
+                    result = local_ai.text_generate(
+                        kind, "An original campaign in a misty valley",
+                        backend="ollama", model="qwen3:4b",
+                    )
+                self.assertEqual(result, "A useful draft.")
+                prompt = request.call_args.args[1]["prompt"]
+                self.assertIn(local_ai.PROMPTS[kind], prompt)
+        self.assertIn("Mindless creatures", local_ai.PROMPTS["monster_bio"])
+        self.assertIn("Do not change ability scores", local_ai.PROMPTS["npc_bio"])
+
     def test_existing_models_are_in_goodneighbor_directory(self):
         qwen = local_ai.GGUF_MODELS["Qwen3 4B Instruct (GGUF)"]
         gemma = local_ai.GGUF_MODELS["Gemma The Writer 9B (GGUF)"]
