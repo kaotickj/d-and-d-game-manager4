@@ -131,13 +131,16 @@ def _wait_for_server(process: subprocess.Popen, url: str, deadline: float,
 
 
 def generate_gguf(kind: str, context: str, model: str, *,
-                  llama_server: str = "", timeout: float = 240) -> str:
+                  llama_server: str = "", gpu_layers: int = 0,
+                  timeout: float = 240) -> str:
     """Use a model *in place* through a short-lived localhost llama-server.
 
     CPU inference is the portable default across AMD/Intel/NVIDIA Windows PCs.
     Users can supply their own optimized llama.cpp build, but the application
     will never download executables or model data.
     """
+    if not isinstance(gpu_layers, int) or not 0 <= gpu_layers <= 99:
+        raise ValueError("GPU layers must be between 0 and 99.")
     path = Path(model).expanduser()
     if not path.is_file() or path.suffix.casefold() != ".gguf":
         raise LocalAIError(
@@ -160,7 +163,8 @@ def generate_gguf(kind: str, context: str, model: str, *,
     port = _free_local_port()
     server_url = f"http://127.0.0.1:{port}"
     cmd = [str(binary), "-m", str(path.resolve()), "--host", "127.0.0.1",
-           "--port", str(port), "--ctx-size", "4096", "--n-gpu-layers", "0"]
+           "--port", str(port), "--ctx-size", "4096",
+           "--n-gpu-layers", str(gpu_layers)]
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     with tempfile.TemporaryFile() as log:
         try:
@@ -197,7 +201,7 @@ def generate_gguf(kind: str, context: str, model: str, *,
 
 def text_generate(kind: str, context: str, *, model: str = DEFAULT_MODEL,
                   backend: str = "gguf", llama_server: str = "",
-                  timeout: float = 240) -> str:
+                  gpu_layers: int = 0, timeout: float = 240) -> str:
     """One user-initiated generation. Never silently falls back to the cloud."""
     if kind not in PROMPTS:
         raise ValueError("Unknown writing task.")
@@ -205,7 +209,8 @@ def text_generate(kind: str, context: str, *, model: str = DEFAULT_MODEL,
         raise ValueError("Provide between 1 and 6,000 characters of context.")
     if backend == "gguf":
         return generate_gguf(kind, context, model,
-                             llama_server=llama_server, timeout=timeout)
+                             llama_server=llama_server, gpu_layers=gpu_layers,
+                             timeout=timeout)
     if backend != "ollama":
         raise ValueError("Unknown local inference engine.")
     if not re.fullmatch(r"[a-zA-Z0-9_.:/-]{1,120}", model):
