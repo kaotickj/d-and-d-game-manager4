@@ -277,9 +277,22 @@ class AIWritingDialog(QDialog):
         QApplication.clipboard().setText(self.result.toPlainText())
         self.status.setText("Draft copied to clipboard.")
 
+    def closeEvent(self, event):
+        if self.kind == "dm":
+            # This sidebar narrator stays owned by MainWindow. Closing it
+            # must not enter QDialog's native reject/finalize path, which
+            # can end the application's window loop on some Windows setups.
+            self.hide()
+            event.ignore()
+            return
+        super().closeEvent(event)
+
     def accept_draft(self):
         if self.kind in ("bio", "npc_bio", "monster_bio", "names") and not self.result.toPlainText().strip():
             QMessageBox.information(self, "Nothing to use", "Write or generate a draft first.")
             return
         self.generated_text = self.result.toPlainText()
-        self.accept()
+        if self.kind == "dm":
+            self.hide()
+        else:
+            self.accept()
