@@ -2,26 +2,29 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 
 from PyQt6.QtCore import QObject, QRunnable, QSettings, QThreadPool, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
-    QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
+    QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from .local_ai import (
     DEFAULT_MODEL, DEFAULT_OLLAMA_MODEL, GGUF_MODELS, LocalAIError,
-    discover_llama_server, text_generate,
+    discover_llama_server, recommended_cpu_threads, text_generate,
+    unload_cached_model,
 )
 
 
 class _Signals(QObject):
-    done = pyqtSignal(str)
+    done = pyqtSignal(str, float)
     failed = pyqtSignal(str)
 
 
 class _Generate(QRunnable):
-    def __init__(self, kind, context, model, backend, runner, gpu_layers):
+    def __init__(self, kind, context, model, backend, runner, gpu_layers,
+                 cpu_threads, batch_threads, keep_loaded):
         super().__init__()
         self.kind = kind
         self.context = context
@@ -29,22 +32,29 @@ class _Generate(QRunnable):
         self.backend = backend
         self.runner = runner
         self.gpu_layers = gpu_layers
+        self.cpu_threads = cpu_threads
+        self.batch_threads = batch_threads
+        self.keep_loaded = keep_loaded
         self.signals = _Signals()
 
     @pyqtSlot()
     def run(self):
+        started = time.monotonic()
         try:
             output = text_generate(
                 self.kind, self.context, model=self.model,
                 backend=self.backend, llama_server=self.runner,
                 gpu_layers=self.gpu_layers,
+                cpu_threads=self.cpu_threads,
+                batch_threads=self.batch_threads,
+                keep_loaded=self.keep_loaded,
             )
         except (LocalAIError, ValueError) as exc:
             self.signals.failed.emit(str(exc))
         except Exception as exc:
             self.signals.failed.emit(f"Local writing error: {exc}")
         else:
-            self.signals.done.emit(output)
+            self.signals.done.emit(output, time.monotonic() - started)
 
 
 class AIWritingDialog(QDialog):
@@ -157,6 +167,55 @@ class AIWritingDialog(QDialog):
         self.gpu_row.setLayout(gpu_line)
         root.addWidget(self.gpu_row)
 
+        threads_layout = QHBoxLayout()
+        threads_layout.addWidget(QLabel("CPU threads"))
+        self.cpu_threads = QSpinBox()
+        self.cpu_threads.setRange(1, 64)
+        suggested = recommended_cpu_threads()
+        saved_cpu = self.settings.value("scribe/cpu_threads", suggested, type=int)
+        self.cpu_threads.setValue(saved_cpu)
+        self.cpu_threads.setAccessibleName("CPU inference threads")
+        self.cpu_threads.setToolTip(
+            "Native CPU threads used to generate tokens. A conservative "
+            "starting point is about half the logical CPU count; "
+            "more threads do not always improve throughput."
+        )
+        threads_layout.addWidget(self.cpu_threads)
+        threads_layout.addWidget(QLabel("Prompt threads"))
+        self.batch_threads = QSpinBox()
+        self.batch_threads.setRange(1, 64)
+        saved_batch = self.settings.value("scribe/batch_threads", suggested, type=int)
+        self.batch_threads.setValue(saved_batch)
+        self.batch_threads.setAccessibleName("CPU prompt processing threads")
+        self.batch_threads.setToolTip(
+            "Threads used when processing the prompt. Try the same value "
+            "as CPU threads, then measure against other values."
+        )
+        threads_layout.addWidget(self.batch_threads)
+        threads_layout.addStretch()
+        self.threads_row = QWidget()
+        self.threads_row.setLayout(threads_layout)
+        root.addWidget(self.threads_row)
+
+        warm_line = QHBoxLayout()
+        self.keep_loaded = QCheckBox("Keep the selected model loaded for the next prompt")
+        self.keep_loaded.setAccessibleName("Reuse the loaded GGUF model")
+        self.keep_loaded.setChecked(
+            self.settings.value("scribe/keep_loaded", True, type=bool)
+        )
+        self.keep_loaded.setToolTip(
+            "Avoids reloading several gigabytes on each prompt. "
+            "Consumes RAM/VRAM until unloaded or the app exits."
+        )
+        warm_line.addWidget(self.keep_loaded, 1)
+        self.unload_button = QPushButton("Unload Model")
+        self.unload_button.setToolTip("Free local AI model RAM and GPU memory now.")
+        self.unload_button.clicked.connect(self.unload_model)
+        warm_line.addWidget(self.unload_button)
+        self.warm_row = QWidget()
+        self.warm_row.setLayout(warm_line)
+        root.addWidget(self.warm_row)
+
         root.addWidget(QLabel("Prompt / Campaign Details"))
         self.context = QPlainTextEdit()
         self.context.setPlainText(context)
@@ -206,11 +265,13 @@ class AIWritingDialog(QDialog):
         self.browse_model.setVisible(gguf)
         self.runtime_row.setVisible(gguf)
         self.gpu_row.setVisible(gguf)
+        self.threads_row.setVisible(gguf)
+        self.warm_row.setVisible(gguf)
         if gguf:
             self._choose_preset()
             self.status.setText(
-                "Existing GGUF files are used directly. Select llama-server "
-                "if it is not installed on PATH."
+                "Existing GGUF files run with native CPU threading. "
+                "Keeping a model loaded speeds up later prompts but uses RAM."
             )
         else:
             self.model.setText(DEFAULT_OLLAMA_MODEL)
@@ -237,30 +298,52 @@ class AIWritingDialog(QDialog):
         if path:
             self.runner.setText(path)
 
+    def unload_model(self):
+        if unload_cached_model():
+            self.status.setText("Cached model unloaded. RAM/VRAM released.")
+        else:
+            self.status.setText(
+                "The model is generating. Wait for completion before unloading."
+            )
+
     def generate(self):
         backend = self.backend.currentData()
         if backend == "gguf":
             self.settings.setValue("scribe/llama_server", self.runner.text().strip())
+            self.settings.setValue("scribe/cpu_threads", self.cpu_threads.value())
+            self.settings.setValue("scribe/batch_threads", self.batch_threads.value())
+            self.settings.setValue("scribe/keep_loaded", self.keep_loaded.isChecked())
         self.generate_button.setEnabled(False)
-        self.status.setText("Generating using the local model. First load may take time…")
+        self.status.setText(
+            "Generating locally. First request may load the model into memory…"
+        )
+        self.unload_button.setEnabled(False)
         job = _Generate(self.kind, self.context.toPlainText(),
                         self.model.text().strip(), backend,
                         self.runner.text().strip() if backend == "gguf" else "",
-                        self.gpu_layers.value() if backend == "gguf" else 0)
+                        self.gpu_layers.value() if backend == "gguf" else 0,
+                        self.cpu_threads.value() if backend == "gguf" else None,
+                        self.batch_threads.value() if backend == "gguf" else None,
+                        self.keep_loaded.isChecked() if backend == "gguf" else False)
         self.worker = job
         job.signals.done.connect(self.done)
         job.signals.failed.connect(self.failed)
         QThreadPool.globalInstance().start(job)
 
-    def done(self, output):
+    def done(self, output, elapsed):
         self.result.setPlainText(output)
-        self.status.setText("Generated locally. Review and edit before using.")
+        self.status.setText(
+            f"Generated locally in {elapsed:.1f}s (includes any model loading). "
+            "Review and edit before using."
+        )
         self.generate_button.setEnabled(True)
+        self.unload_button.setEnabled(True)
         self.worker = None
 
     def failed(self, reason):
         self.status.setText(reason)
         self.generate_button.setEnabled(True)
+        self.unload_button.setEnabled(True)
         self.worker = None
 
     def copy_text(self):
