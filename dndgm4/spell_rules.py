@@ -190,7 +190,7 @@ def validate_spellbook(class_name: str, scores: dict[str,int],
             if len(result["prepared"][level]) > profile["slots"][level]:
                 raise ValueError(f"Too many level-{level} prepared spells.")
             limit=profile["limits"][level]
-            if limit and len(result["known"][level])>limit:
+            if profile["mode"]=="spontaneous" and len(result["known"][level])>limit:
                 raise ValueError(f"Too many level-{level} spells known.")
         if profile["mode"]=="spontaneous" and any(result["prepared"].values()):
             raise ValueError("Spontaneous casters do not prepare daily spell lists.")
