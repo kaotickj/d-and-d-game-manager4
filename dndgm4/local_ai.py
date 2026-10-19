@@ -7,8 +7,10 @@ Qwen3-TTS from Voice Studio is a speech model, not a writing model.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import os
+import threading
 from pathlib import Path
 import re
 import shutil
@@ -130,78 +132,184 @@ def _wait_for_server(process: subprocess.Popen, url: str, deadline: float,
     raise LocalAIError("Timed out waiting for llama-server to load the GGUF model.")
 
 
+def recommended_cpu_threads(logical_cores: int | None = None) -> int:
+    """Conservative starting point: half of logical CPUs, capped at 16."""
+    cores = logical_cores if logical_cores is not None else (os.cpu_count() or 4)
+    return min(16, max(1, cores // 2))
+
+
+def _validated_threads(threads: int | None, batch_threads: int | None) -> tuple[int, int]:
+    if threads is None:
+        threads = recommended_cpu_threads()
+    if batch_threads is None:
+        batch_threads = threads
+    if (type(threads) is not int or type(batch_threads) is not int or
+            not 1 <= threads <= 64 or not 1 <= batch_threads <= 64):
+        raise ValueError("CPU thread counts must be whole numbers from 1 to 64.")
+    return threads, batch_threads
+
+
+class _GGUFSession:
+    """A single dedicated localhost llama-server process, plus owned log."""
+
+    def __init__(self, config: tuple):
+        self.config = config  # binary, model, GPU layers, decode, batch threads
+        self.process = None
+        self.log = None
+        self.url = ""
+
+    def running(self) -> bool:
+        return self.process is not None and self.process.poll() is None
+
+    def start(self):
+        binary, path, gpu_layers, threads, batch_threads = self.config
+        port = _free_local_port()
+        self.url = f"http://127.0.0.1:{port}"
+        cmd = [
+            binary, "-m", path, "--host", "127.0.0.1",
+            "--port", str(port), "--ctx-size", "4096",
+            "--n-gpu-layers", str(gpu_layers),
+            "--threads", str(threads), "--threads-batch", str(batch_threads),
+            "--parallel", "1",
+        ]
+        self.log = tempfile.TemporaryFile()
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            self.process = subprocess.Popen(
+                cmd, stdout=self.log, stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL, creationflags=flags)
+            _wait_for_server(self.process, self.url, time.monotonic() + 120,
+                             self.log)
+        except Exception:
+            self.close()
+            raise
+
+    def complete(self, kind: str, context: str, *, timeout: float) -> str:
+        response = _post_json(self.url + "/v1/chat/completions", {
+            "model": Path(self.config[1]).name,
+            "messages": [
+                {"role": "system", "content": PROMPTS[kind]},
+                {"role": "user", "content": context.strip()},
+            ],
+            "stream": False, "temperature": .75, "max_tokens": 650,
+        }, timeout=timeout)
+        choices = response.get("choices") or []
+        if not choices or not isinstance(choices[0], dict):
+            raise LocalAIError("llama.cpp returned no completion choices.")
+        return _clean_output(choices[0].get("message", {}).get("content", ""))
+
+    def close(self):
+        process, self.process = self.process, None
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        if self.log is not None:
+            self.log.close()
+            self.log = None
+
+
+class _WarmGGUFManager:
+    """One cached model, serial requests, safe model/engine changes and exit."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.session: _GGUFSession | None = None
+
+    def generate(self, config: tuple, kind: str, context: str, *,
+                 timeout: float, keep_loaded: bool) -> str:
+        # Serializing matters: multiple 9B copies can exhaust system memory.
+        with self.lock:
+            if (self.session is not None and
+                    (self.session.config != config or not self.session.running())):
+                self._close_locked()
+            if self.session is None:
+                self.session = _GGUFSession(config)
+                try:
+                    self.session.start()
+                except Exception:
+                    self._close_locked()
+                    raise
+            try:
+                return self.session.complete(kind, context, timeout=timeout)
+            except Exception:
+                # A failing server should not be carried into the next request.
+                self._close_locked()
+                raise
+            finally:
+                if not keep_loaded:
+                    self._close_locked()
+
+    def _close_locked(self):
+        old, self.session = self.session, None
+        if old is not None:
+            old.close()
+
+    def unload(self, *, wait: bool = False) -> bool:
+        """Nonblocking unload in GUI. False means generation is still running."""
+        if not self.lock.acquire(blocking=wait):
+            return False
+        try:
+            self._close_locked()
+            return True
+        finally:
+            self.lock.release()
+
+
+_WARM_MANAGER = _WarmGGUFManager()
+atexit.register(lambda: _WARM_MANAGER.unload(wait=True))
+
+
+def unload_cached_model() -> bool:
+    """Release the cached GGUF server and RAM/VRAM when it is idle."""
+    return _WARM_MANAGER.unload(wait=False)
+
+
 def generate_gguf(kind: str, context: str, model: str, *,
                   llama_server: str = "", gpu_layers: int = 0,
+                  cpu_threads: int | None = None,
+                  batch_threads: int | None = None,
+                  keep_loaded: bool = False,
                   timeout: float = 240) -> str:
-    """Use a model *in place* through a short-lived localhost llama-server.
+    """Threaded llama.cpp inference, optionally reusing the warm model.
 
-    CPU inference is the portable default across AMD/Intel/NVIDIA Windows PCs.
-    Users can supply their own optimized llama.cpp build, but the application
-    will never download executables or model data.
+    Thread count controls native inference, not additional Python workers.
+    Keep-loaded trades RAM usage for significantly faster subsequent prompts.
     """
-    if not isinstance(gpu_layers, int) or not 0 <= gpu_layers <= 99:
-        raise ValueError("GPU layers must be between 0 and 99.")
+    if type(gpu_layers) is not int or not 0 <= gpu_layers <= 99:
+        raise ValueError("GPU layers must be an integer from 0 to 99.")
+    threads, batch = _validated_threads(cpu_threads, batch_threads)
     path = Path(model).expanduser()
     if not path.is_file() or path.suffix.casefold() != ".gguf":
         raise LocalAIError(
             "GGUF model file not found. Select the existing model file in "
-            "the Goodneighbor Blues AI Writer models directory."
-        )
+            "the Goodneighbor Blues AI Writer models directory.")
     executable = llama_server.strip() or discover_llama_server()
     if not executable:
         raise LocalAIError(
             "A llama.cpp llama-server executable is required to run GGUF files. "
-            "Choose your existing llama-server.exe in the Scribe settings. "
-            "Model files alone cannot run inference. Nothing was downloaded."
-        )
+            "Choose your existing llama-server.exe in The Scribe settings. "
+            "Model files alone cannot run inference. Nothing was downloaded.")
     binary = Path(executable).expanduser()
     if not binary.is_file():
         located = shutil.which(executable)
         if not located:
             raise LocalAIError("Selected llama-server executable does not exist.")
         binary = Path(located)
-    port = _free_local_port()
-    server_url = f"http://127.0.0.1:{port}"
-    cmd = [str(binary), "-m", str(path.resolve()), "--host", "127.0.0.1",
-           "--port", str(port), "--ctx-size", "4096",
-           "--n-gpu-layers", str(gpu_layers)]
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    with tempfile.TemporaryFile() as log:
-        try:
-            process = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT,
-                                       stdin=subprocess.DEVNULL,
-                                       creationflags=flags)
-        except OSError as exc:
-            raise LocalAIError(f"Unable to launch llama-server: {exc}") from exc
-        try:
-            _wait_for_server(process, server_url, time.monotonic() + 120, log)
-            response = _post_json(server_url + "/v1/chat/completions", {
-                "model": path.name,
-                "messages": [
-                    {"role": "system", "content": PROMPTS[kind]},
-                    {"role": "user", "content": context.strip()},
-                ],
-                "stream": False,
-                "temperature": .75,
-                "max_tokens": 650,
-            }, timeout=timeout)
-            choices = response.get("choices") or []
-            if not choices or not isinstance(choices[0], dict):
-                raise LocalAIError("llama.cpp returned no completion choices.")
-            return _clean_output(choices[0].get("message", {}).get("content", ""))
-        finally:
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
+    config = (str(binary.resolve()), str(path.resolve()),
+              gpu_layers, threads, batch)
+    return _WARM_MANAGER.generate(
+        config, kind, context, timeout=timeout, keep_loaded=keep_loaded)
 
 
 def text_generate(kind: str, context: str, *, model: str = DEFAULT_MODEL,
                   backend: str = "gguf", llama_server: str = "",
-                  gpu_layers: int = 0, timeout: float = 240) -> str:
+                  gpu_layers: int = 0, cpu_threads: int | None = None,
+                  batch_threads: int | None = None,
+                  keep_loaded: bool = False, timeout: float = 240) -> str:
     """One user-initiated generation. Never silently falls back to the cloud."""
     if kind not in PROMPTS:
         raise ValueError("Unknown writing task.")
@@ -210,7 +318,8 @@ def text_generate(kind: str, context: str, *, model: str = DEFAULT_MODEL,
     if backend == "gguf":
         return generate_gguf(kind, context, model,
                              llama_server=llama_server, gpu_layers=gpu_layers,
-                             timeout=timeout)
+                             cpu_threads=cpu_threads, batch_threads=batch_threads,
+                             keep_loaded=keep_loaded, timeout=timeout)
     if backend != "ollama":
         raise ValueError("Unknown local inference engine.")
     if not re.fullmatch(r"[a-zA-Z0-9_.:/-]{1,120}", model):
