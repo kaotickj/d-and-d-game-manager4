@@ -21,6 +21,14 @@ class ChildWindowLifecycleTests(unittest.TestCase):
         source = textwrap.dedent(r'''
             import json
             import sys
+            import faulthandler
+            import traceback
+            faulthandler.enable(all_threads=True)
+            def log_exc(t,v,tb):
+                print('STAGE_PYTHON_EXCEPTION',repr(v),flush=True)
+                traceback.print_exception(t,v,tb)
+            sys.excepthook = log_exc
+            print('STAGE_IMPORT_START',flush=True)
             from pathlib import Path
             from tempfile import TemporaryDirectory
             from PyQt6.QtCore import QTimer, Qt
@@ -31,6 +39,7 @@ class ChildWindowLifecycleTests(unittest.TestCase):
             from dndgm4.storage import CreatureRepository
             from dndgm4.theme import apply_theme
 
+            print('STAGE_APP_INIT',flush=True)
             app = QApplication([])
             app.setQuitOnLastWindowClosed(False)
             apply_theme(app)
@@ -51,16 +60,20 @@ class ChildWindowLifecycleTests(unittest.TestCase):
             }
             class AutoScribe(AIWritingDialog):
                 def exec(self):
+                    print('STAGE_SCRIBE_EXEC',flush=True)
                     def click_use_draft():
+                        print('STAGE_SCRIBE_CLICK_START',flush=True)
                         assert self.kind == "character_build"
                         self.result.setPlainText(json.dumps(payload))
                         assert self.use.text() == "Use Draft"
                         self.use.click()  # ACTUAL button and actual QDialog.accept()
+                        print('STAGE_SCRIBE_CLICK_FINISHED',flush=True)
                     QTimer.singleShot(0, click_use_draft)
                     return super().exec()
 
             class AutoCreator(roll_ui.CharacterCreatorDialog):
                 def exec(self):
+                    print('STAGE_CREATOR_EXEC',flush=True)
                     self.creation_mode.setCurrentIndex(1)
                     self.race.setCurrentText("Human")
                     self.character_class.setCurrentText("Fighter")
@@ -72,7 +85,11 @@ class ChildWindowLifecycleTests(unittest.TestCase):
                                       "A watch captain"))
                         print("USE_DRAFT_APPLICATION_ALIVE=" + str(result),flush=True)
                         self.reject()  # unwind only the character dialog
-                    QTimer.singleShot(0, self.ai_build_button.click)
+                    def click_generate():
+                        print('STAGE_GENERATE_CLICK',flush=True)
+                        self.ai_build_button.click()
+                        print('STAGE_GENERATE_RETURNED',flush=True)
+                    QTimer.singleShot(0, click_generate)
                     QTimer.singleShot(250, after_draft)
                     return super().exec()
 
@@ -80,10 +97,12 @@ class ChildWindowLifecycleTests(unittest.TestCase):
             roll_ui.AIWritingDialog = AutoScribe
 
             with TemporaryDirectory() as tmp:
+                print('STAGE_MAIN_CREATING',flush=True)
                 main = ui.MainWindow(CreatureRepository(Path(tmp)/"library.sqlite3"))
                 main.show()
                 assert main.isVisible()
                 def run_forge():
+                    print('STAGE_MAIN_CREATE_PC',flush=True)
                     main.create("pc")  # actual create() / dialog.exec() path
                     alive = main.isVisible()
                     print("MAIN_STILL_VISIBLE=" + str(alive),flush=True)
@@ -93,6 +112,7 @@ class ChildWindowLifecycleTests(unittest.TestCase):
                 QTimer.singleShot(0, run_forge)
                 QTimer.singleShot(10000, lambda: (
                     print("LIFECYCLE_TIMEOUT",flush=True), app.exit(8)))
+                print('STAGE_EVENT_LOOP_START',flush=True)
                 exit_code = app.exec()
                 print("QT_EVENT_LOOP_EXIT=" + str(exit_code),flush=True)
                 sys.exit(exit_code)
