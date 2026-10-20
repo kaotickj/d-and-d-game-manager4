@@ -516,3 +516,20 @@ the GUI regression. Windows runtime tests are required before merge.
 The existing 3.5 rules calculations, stored characters, persistent scenes,
 fantasy banner, ability-score layout and previous one-request GGUF model
 runtime are unchanged.
+
+## v0.7.3: Larger main desktop window and wider navigation
+
+The Compendium opens at **1551 × 924 pixels**, exactly 10% larger in both
+dimensions than its previous 1410 × 840 default. The left navigation
+pane is **326 pixels** wide (up from 276) to give its existing labels
+more room. The content workspace gains another 91 pixels of width.
+
+Only the outer main-window size and sidebar width change. Existing
+fonts, controls, hero banner height (166 px), square ability-score
+tiles, buttons, menus and child-dialog sizes are preserved. The
+compact minimum window dimensions remain 830 × 540.
+
+The local Gemma/Qwen3 GGUF inference engine is **unchanged**. The user
+confirmed that the recent writer failure was due to memory pressure
+from other running applications, not a newly introduced model-access
+regression.
