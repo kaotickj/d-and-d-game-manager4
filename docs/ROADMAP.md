@@ -23,7 +23,13 @@ as Copyright 2001–2025 Kaosium Interactive, designed and coded by Kaotick Jay.
 - Only D&D 3.5 initially. Avoid pretending incomplete fields are rules-checked.
 - No cloud account required for local offline play.
 
-## MVP limitations
+## Implemented through v0.9.0
+
+- Compendium persistent PC/NPC/monster templates, scene selection, Character/Monster Forges and The Scribe.
+- Battle Trakker with independent encounter copies, initiative, surprise rounds, conditions, health, journaling and resumable autosaves.
+- Encounter Command with SRD attack/save/check handling, caster-initiative effect clocks, action budgets and spell slots. Many advanced mechanics remain DM-adjudicated.
+
+## Original MVP limitations (historical, superseded by later milestones)
 
 This version provides manual entry, searching, editing, duplication, and
 archiving, but not D&D 3.5 character calculations, campaign management,
