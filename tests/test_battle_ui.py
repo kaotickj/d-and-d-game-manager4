@@ -80,8 +80,11 @@ class BattleTrackerGuiTests(unittest.TestCase):
             self.assertEqual({f.kind for f in tracker.battle.fighters},
                              {"pc","npc","monster"})
             # Manual initiative and buttons work without modifying library HP.
-            uid=tracker.battle.fighters[0].uid
-            tracker.table.selectRow(0)
+            uid=next(f.uid for f in tracker.battle.fighters if f.kind=="pc")
+            for row in range(tracker.table.rowCount()):
+                if tracker.table.item(row,1).data(Qt.ItemDataRole.UserRole)==uid:
+                    tracker.table.selectRow(row)
+                    break
             tracker.initiative_input.setValue(17)
             tracker.set_initiative()
             self.assertEqual(tracker.battle.get(uid).initiative,17)
