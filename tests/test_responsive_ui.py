@@ -17,7 +17,7 @@ class ResponsiveLayoutTests(unittest.TestCase):
         apply_theme(cls.app)
 
     def test_default_window_ten_percent_larger_and_sidebar_wider(self):
-        from PyQt6.QtWidgets import QScrollArea, QPushButton
+        from PyQt6.QtWidgets import QScrollArea, QPushButton, QFrame
         from dndgm4.storage import CreatureRepository
         from dndgm4.ui import MainWindow
         with TemporaryDirectory() as folder:
@@ -47,12 +47,10 @@ class ResponsiveLayoutTests(unittest.TestCase):
             self.assertEqual(
                 sidebar.findChildren(QPushButton, "navButton")[0].font().pointSize(),
                 window.nav[None].font().pointSize())
-            self.assertEqual(window.findChildren(
-                __import__("PyQt6.QtWidgets", fromlist=["QFrame"]).QFrame,
-                "statChip")[0].width(),
-                window.findChildren(
-                    __import__("PyQt6.QtWidgets", fromlist=["QFrame"]).QFrame,
-                    "statChip")[0].height())
+            tiles = window.findChildren(QFrame, "statChip")
+            self.assertEqual(len(tiles), 6)
+            for tile in tiles:
+                self.assertEqual(tile.width(), tile.height())
             window.close()
 
     def test_classic_banner_fills_its_original_fixed_height(self):
