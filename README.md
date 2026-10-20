@@ -5,13 +5,11 @@ Modern Python and PyQt6 continuation of **Dungeons & Dragons Game Manager
 (likely 4.03). Original source header credits Copyright 2001–2025
 **Kaosium Interactive**.
 
-## Status: early development, v0.2.0
+## Status: v0.9.0, D&D 3.5 Encounter Command
 
-Current milestone: **The Compendium**, a themed Character & Monster Library, backed by SQLite.
-Create, search, edit, duplicate, archive and restore player characters,
-NPCs and monster templates. Records persist between application launches.
+The **Compendium** provides a searchable, persistent SQLite library for player characters, NPCs and monster templates. **Battle Trakker** adds an independent live-combat encounter manager (Ctrl+B), and **Encounter Command** adds SRD 3.5 attacks, checks, saves, condition clocks, action budgets, and spell-slot tracking. Combat never mutates permanent creature templates.
 
-This is **not yet a complete D&D 3.5 rules engine**. See
+This remains **a partial D&D 3.5 rules engine**, not a full implementation. See
 [the roadmap](docs/ROADMAP.md) for the next milestones.
 
 ## Installation (Python 3.11+)
@@ -592,3 +590,17 @@ Rules reference: D&D 3.5 SRD, Combat,
 https://www.d20srd.org/srd/combat/initiative.htm ,
 https://www.d20srd.org/srd/conditionSummary.htm and
 https://www.d20srd.org/srd/combat/injuryandDeath.htm .
+
+## v0.9.0: SRD 3.5 Encounter Command
+
+This milestone extends Battle Trakker v0.8.0 (which remains available with Ctrl+B) with an optional **Encounter Command** combat desk.
+
+- Initiative-anchored spell/effect clocks, six-second in-game rounds, independent opt-in wall-clock countdowns, and persistence compatible with v0.8 encounter snapshots.
+- Standard, move, full-round, swift, immediate and free action budgets, with explicit DM override for exceptions.
+- Deterministic attack and skill/save adjudication, including natural 1/20 behavior where the SRD specifies it, threat/critical confirmation, weapon damage, cover, concealment, damage reduction and optional application of damage.
+- Spell slot and casting history tracking, plus opt-in indexing of six SRD class spell lists, cached locally for subsequent offline use.
+- SRD combat reference and scene-aware local Scribe narration. AI narration does not determine game mechanics or modify combat statistics.
+
+**Limits:** This is not an exhaustive D&D 3.5 combat engine. Spell-specific effects, non-SRD sourcebooks, prestige-class spells, tactical movement and attacks of opportunity, nuanced feat/equipment stacking, precision damage, grappling/trip/disarm and other advanced rulings remain for the DM to review. The optional spell index importer needs a deliberate initial online operation; normal combat tracking needs no internet.
+
+The Windows installer and portable ZIP are built by GitHub Actions. For an up-to-date test build, open the most recent successful **Windows installer** run on the `main` branch and download its `DnDGameManager4-Windows-*` artifact. Installer versions are read from `pyproject.toml`.
