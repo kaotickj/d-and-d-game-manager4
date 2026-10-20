@@ -200,7 +200,7 @@ class CombatDeskDialog(QDialog):
         row.addWidget(QLabel("Real-world seconds"))
         self.wall_seconds = spin(5, 3600, 60, "Optional table timer seconds")
         row.addWidget(self.wall_seconds)
-        row.addWidget(self.button("Start / Resume", self.table_timer.start))
+        row.addWidget(self.button("Start / Resume", lambda: self.table_timer.start(1000)))
         row.addWidget(self.button("Pause", self.table_timer.stop))
         row.addWidget(self.button("Reset", self.reset_timer))
         row.addStretch()
