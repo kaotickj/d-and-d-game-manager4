@@ -248,6 +248,7 @@ class MainWindow(QMainWindow):
             self.scene = blank_scene()
             self._scene_error = str(exc)
         self.active_kind = None
+        self._battle_window = None
         self.setWindowTitle(f"Dungeons & Dragons Game Manager 4 · {__version__} · The Compendium")
         self.setWindowIcon(window_icon())
         # 10% larger default desktop window; do not scale fonts, banners,
@@ -285,6 +286,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+D"), self, activated=self.open_dice)
         QShortcut(QKeySequence("Ctrl+G"), self, activated=self.open_names)
         QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=self.open_narrator)
+        QShortcut(QKeySequence("Ctrl+B"), self, activated=self.open_battle_trakker)
         self.refresh()
 
     def setup_sidebar(self, shell):
@@ -348,6 +350,10 @@ class MainWindow(QMainWindow):
         narrator = action("The Scribe  /  DM Narration", self.open_narrator)
         narrator.setAccessibleName("Open the local AI Dungeon Master narration tool")
         layout.addWidget(narrator)
+        combat = action("Battle Trakker  /  Combat Manager", self.open_battle_trakker)
+        combat.setAccessibleName("Open the D&D 3.5 Battle Trakker encounter manager")
+        layout.addWidget(combat)
+        layout.addWidget(caption("Ctrl+B opens the Battle Trakker", "muted"))
         layout.addSpacing(8)
         layout.addWidget(caption("QUICK CREATE", "eyebrow"))
         for title, kind in (("+  New Character", "pc"), ("+  New NPC", "npc"),
@@ -461,6 +467,11 @@ class MainWindow(QMainWindow):
         self.load_selected_button.setAccessibleName("Send full selected records to the local Scribe")
         selection_actions.addWidget(self.load_selected_button)
         pane.addLayout(selection_actions)
+        combat_actions = QHBoxLayout()
+        self.send_battle_button = action("Load Selected into Battle Trakker",
+                                         self.load_selection_to_battle)
+        combat_actions.addWidget(self.send_battle_button)
+        pane.addLayout(combat_actions)
         scene_actions = QHBoxLayout()
         self.edit_scene_button = action("Edit Scene", self.edit_scene)
         scene_actions.addWidget(self.edit_scene_button)
@@ -636,6 +647,7 @@ class MainWindow(QMainWindow):
             control.setEnabled(record is not None)
         self.add_scene_button.setEnabled(bool(selection))
         self.load_selected_button.setEnabled(bool(selection))
+        self.send_battle_button.setEnabled(bool(selection))
         if len(selection) > 1:
             self.preview_title.setText(f"{len(selection)} records selected")
             self.preview_sub.setText(
@@ -827,6 +839,34 @@ class MainWindow(QMainWindow):
             app = QApplication.instance()
             if app is not None:
                 app.quit()
+
+    def open_battle_trakker(self):
+        """Open or reuse the live Battle Trakker without blocking Compendium."""
+        from .battle_ui import BattleTrakkerDialog
+        if self._battle_window is not None:
+            self._battle_window.set_scene(self.scene)
+            self._battle_window.show()
+            self._battle_window.raise_()
+            self._battle_window.activateWindow()
+            return self._battle_window
+        try:
+            self._battle_window = BattleTrakkerDialog(
+                self.library, self, scene=self.scene)
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "Battle Trakker save needs review", str(exc))
+            return None
+        self._battle_window.show()
+        return self._battle_window
+
+    def load_selection_to_battle(self):
+        records = self.selected_records()
+        if not records:
+            QMessageBox.information(self, "Select combatants",
+                                    "Select one or more PC, NPC or monster records.")
+            return
+        tracker = self.open_battle_trakker()
+        if tracker is not None:
+            tracker._run(lambda: tracker._add_records(records))
 
     def open_dice(self):
         dialog = DiceDialog(self)
