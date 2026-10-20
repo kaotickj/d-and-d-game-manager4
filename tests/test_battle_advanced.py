@@ -8,7 +8,7 @@ from dndgm4.battle_advanced import AdvancedBattle, AdvancedBattleStore
 from dndgm4.battle_srd35 import (
     attack, roll_damage, saving_throw, skill_check, duration_to_rounds
 )
-from dndgm4.srd35_spells import SpellCatalog, parse_spell_list, download_srd_catalog, LISTS
+from dndgm4.srd35_spells import SpellCatalog, parse_spell_list, download_srd_catalog, LISTS, BASE
 
 
 class FixedRoller:
@@ -144,7 +144,7 @@ class SpellIndexTests(unittest.TestCase):
                 '<p><a href="../spells/detectMagic.htm">Detect Magic</a></p>'
                 '<h3>1st-Level Bard Spells</h3>'
                 '<a href="../spells/sleep.htm">Sleep</a>')
-        spells = parse_spell_list(html, "Bard", LISTS["Bard"])
+        spells = parse_spell_list(html, "Bard", BASE + LISTS["Bard"])
         # source URL should be a full URL in real downloader
         self.assertEqual(len(spells), 2)
         self.assertEqual([s["level"] for s in spells], [0, 1])
