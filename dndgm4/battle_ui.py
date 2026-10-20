@@ -17,9 +17,9 @@ from PyQt6.QtWidgets import (
     QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from .battle_rules import (
-    Battle, BattleStore, Fighter, CONDITIONS, fighter_from_record
-)
+from .battle_rules import Fighter, CONDITIONS, fighter_from_record
+from .battle_advanced import AdvancedBattle as Battle, AdvancedBattleStore as BattleStore
+from .battle_desk_ui import CombatDeskDialog
 from .storage import CreatureRepository
 
 
@@ -156,6 +156,11 @@ class BattleTrakkerDialog(QDialog):
         self.save_button = QPushButton("Save Encounter")
         self.save_button.clicked.connect(self.save)
         title_line.addWidget(self.save_button)
+        self.rules_button = QPushButton("Open SRD Combat Desk")
+        self.rules_button.setObjectName("primaryButton")
+        self.rules_button.setAccessibleName("Open advanced rules, spells, effect timers and DM narration")
+        self.rules_button.clicked.connect(self.open_advanced)
+        title_line.addWidget(self.rules_button)
         root.addLayout(title_line)
 
         toolbar = QHBoxLayout()
@@ -335,6 +340,14 @@ class BattleTrakkerDialog(QDialog):
         # Never terminate QApplication from a secondary window.
         self.hide()
         event.ignore()
+
+    def open_advanced(self):
+        if not hasattr(self, "advanced_desk"):
+            self.advanced_desk = CombatDeskDialog(self)
+        self.advanced_desk.refresh()
+        self.advanced_desk.show()
+        self.advanced_desk.raise_()
+        self.advanced_desk.activateWindow()
 
     def set_scene(self, scene: dict):
         self.scene = scene or {}
@@ -534,7 +547,7 @@ class BattleTrakkerDialog(QDialog):
         self.surprised.blockSignals(False)
         self.active.blockSignals(False)
         statuses = ", ".join(
-            f"{c['name']} ({c['rounds'] if c['rounds'] is not None else '∞'})"
+            f"{c['name']} ({c['rounds'] if c['rounds'] is not None else (self.battle.condition_remaining(fighter.uid, c['name']) or '∞')})"
             for c in fighter.conditions) or "None"
         self.detail.setText(
             f"{fighter.name} · AC {fighter.ac} · Initiative mod "
@@ -560,7 +573,7 @@ class BattleTrakkerDialog(QDialog):
                 if self.battle.phase=="surprise" and fighter.surprised:
                     turn = "—"
                 statuses = ", ".join(
-                    f"{entry['name']}({entry['rounds'] if entry['rounds'] is not None else '∞'})"
+                    f"{entry['name']}({entry['rounds'] if entry['rounds'] is not None else (self.battle.condition_remaining(fighter.uid, entry['name']) or '∞')})"
                     for entry in fighter.conditions)
                 values = [
                     turn, fighter.name, fighter.kind.upper(),
@@ -603,3 +616,5 @@ class BattleTrakkerDialog(QDialog):
         self.log_display.verticalScrollBar().setValue(
             self.log_display.verticalScrollBar().maximum())
         self.refresh_selection()
+        if hasattr(self, "advanced_desk") and self.advanced_desk.isVisible():
+            self.advanced_desk.refresh()
