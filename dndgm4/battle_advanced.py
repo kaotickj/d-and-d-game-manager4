@@ -120,6 +120,16 @@ class AdvancedBattle(Battle):
             item["remaining"] -= 1
             if item["remaining"] == 0:
                 self.effects.remove(item)
+                if item["notes"] == "Timed condition (SRD)" and item["target_id"]:
+                    creature = self.get(item["target_id"])
+                    # Keep condition if another instance of the same named
+                    # effect remains active (e.g. two overlapping casters).
+                    if not any(e["notes"] == "Timed condition (SRD)" and
+                               e["target_id"] == item["target_id"] and
+                               e["name"] == item["name"] for e in self.effects):
+                        creature.conditions = [
+                            c for c in creature.conditions
+                            if c["name"] != item["name"]]
                 self.note(f"EXPIRED before initiative count: {item['name']}.")
 
     def elapsed_rounds(self):
@@ -206,6 +216,48 @@ class AdvancedBattle(Battle):
         self._remember()
         used[action] = used.get(action, 0) + 1
         self.note(f"{self.get(self.current_id).name} spends {action} action.")
+
+    def set_condition(self, uid, name, rounds):
+        """Conditions added during active combat share the SRD source clock.
+
+        A condition set BEFORE combat retains legacy behavior because its
+        originating initiative cannot yet be known. Those can be re-applied
+        during combat from the correct caster's turn.
+        """
+        fighter = self.get(uid)
+        if rounds is None or self.phase not in ("combat", "surprise"):
+            super().set_condition(uid, name, rounds)
+            if rounds is None:
+                self.effects = [e for e in self.effects if not (
+                    e["target_id"] == uid and e["name"] == name and
+                    e["notes"] == "Timed condition (SRD)")]
+            return
+        if type(rounds) is not int or not 1 <= rounds <= 9999:
+            raise ValueError("Condition duration must be 1-9999 rounds.")
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
+            raise ValueError("Choose a condition name.")
+        self.add_effect(name.strip(), target_id=uid,
+                        anchor_id=self.current_id, duration=rounds,
+                        notes="Timed condition (SRD)")
+        for condition in fighter.conditions:
+            if condition["name"] == name.strip():
+                condition["rounds"] = None
+                break
+        else:
+            fighter.conditions.append({"name": name.strip(), "rounds": None})
+        self.note(f"{fighter.name}: {name.strip()} status tied to caster initiative.")
+
+    def clear_condition(self, uid, name):
+        super().clear_condition(uid, name)
+        self.effects = [e for e in self.effects if not (
+            e["target_id"] == uid and e["name"] == name and
+            e["notes"] == "Timed condition (SRD)")]
+
+    def condition_remaining(self, uid, name):
+        matches = [e["remaining"] for e in self.effects
+                   if e["target_id"] == uid and e["name"] == name and
+                   e["notes"] == "Timed condition (SRD)"]
+        return min(matches) if matches else None
 
     def set_spell_slots(self, uid, level, total, used=0):
         self.get(uid)
