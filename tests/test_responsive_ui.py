@@ -16,7 +16,7 @@ class ResponsiveLayoutTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         apply_theme(cls.app)
 
-    def test_default_window_and_sidebar_gain_equal_thirty_pixels(self):
+    def test_default_window_ten_percent_larger_and_sidebar_wider(self):
         from PyQt6.QtWidgets import QScrollArea, QPushButton
         from dndgm4.storage import CreatureRepository
         from dndgm4.ui import MainWindow
@@ -24,12 +24,16 @@ class ResponsiveLayoutTests(unittest.TestCase):
             window = MainWindow(CreatureRepository(Path(folder) / "sidebar.sqlite3"))
             window.show()
             self.app.processEvents()
-            self.assertEqual(window.width(), 1410)
-            self.assertEqual(window.height(), 840)
+            # Exactly 10% larger than the 1410 x 840 v0.7.2 default.
+            self.assertEqual(window.width(), 1551)
+            self.assertEqual(window.height(), 924)
+            # Keep the previously supported compact window sizes.
             self.assertEqual(window.minimumWidth(), 830)
+            self.assertEqual(window.minimumHeight(), 540)
             sidebar = window.findChild(QScrollArea, "sidebarScroll")
             self.assertIsNotNone(sidebar)
-            self.assertEqual(sidebar.width(), 276)
+            self.assertEqual(sidebar.width(), 326)
+            self.assertEqual(window.width() - sidebar.width(), 1225)
             # The existing controls stay in the sidebar and keep their labels.
             button_labels = {widget.text() for widget in
                              sidebar.findChildren(QPushButton)}
@@ -38,6 +42,17 @@ class ResponsiveLayoutTests(unittest.TestCase):
                           "The Scribe  /  DM Narration", "+  New Monster"):
                 self.assertIn(label, button_labels)
             self.assertEqual(window.hero_banner.height(), 166)
+            # The 10% enlargement is of the outer window only; artwork,
+            # fonts, and existing navigation/button dimensions must not scale.
+            self.assertEqual(
+                sidebar.findChildren(QPushButton, "navButton")[0].font().pointSize(),
+                window.nav[None].font().pointSize())
+            self.assertEqual(window.findChildren(
+                __import__("PyQt6.QtWidgets", fromlist=["QFrame"]).QFrame,
+                "statChip")[0].width(),
+                window.findChildren(
+                    __import__("PyQt6.QtWidgets", fromlist=["QFrame"]).QFrame,
+                    "statChip")[0].height())
             window.close()
 
     def test_classic_banner_fills_its_original_fixed_height(self):
