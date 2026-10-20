@@ -114,7 +114,14 @@ class Battle:
     _history: list[dict] = field(default_factory=list, repr=False, compare=False)
 
     def snapshot(self) -> dict:
-        return {k: v for k, v in asdict(self).items() if k != "_history"}
+        # Do not serialize _history: asdict(self) would deeply copy every
+        # previous snapshot and make long encounters quadratically expensive.
+        return {
+            "title": self.title, "scene": self.scene, "round": self.round,
+            "phase": self.phase, "current_id": self.current_id,
+            "fighters": [asdict(member) for member in self.fighters],
+            "log": list(self.log),
+        }
 
     def _remember(self):
         self._history.append(copy.deepcopy(self.snapshot()))
