@@ -533,3 +533,62 @@ The local Gemma/Qwen3 GGUF inference engine is **unchanged**. The user
 confirmed that the recent writer failure was due to memory pressure
 from other running applications, not a newly introduced model-access
 regression.
+
+
+## v0.8.0: Battle Trakker, live D&D 3.5 combat / encounter manager
+
+Open **Battle Trakker / Combat Manager** in the Compendium sidebar, press
+**Ctrl+B**, or multi-select records in All Records and choose **Load Selected
+into Battle Trakker**. It is a separate reusable non-modal window and never
+closes the main program.
+
+- Import players, NPCs and monsters from the existing library, with as many
+  separately tracked copies of a monster as required. **Add Scene Roster**
+  uses the checked members from the Compendium's saved scene and captures
+  scene notes/conditions. **Add from Library** offers bulk selection and
+  a copy count. **+ Custom** adds ad-hoc allies, foes and hazards.
+- **Initiative:** roll unbiased d20 plus the record's Dexterity modifier
+  and the stored **Improved Initiative** bonus, or use the saved monster
+  computed initiative field when available. Manually override initiative,
+  preserve Dexterity-based tie ordering, and mark surprised creatures. A
+  surprise round (round 0) includes only eligible combatants, followed by
+  the normal round 1 in initiative order. Adjust active participant status.
+- **Hit points:** current/max HP, damage, healing capped to normal maximum,
+  separately assigned temporary HP (absorbed before damage), direct HP edits,
+  and reminders at zero or negative HP. The manager makes no universal
+  assumptions about special creature death rules.
+- **D&D 3.5 conditions:** select named SRD conditions or write custom ones.
+  Track each with a number of turns or leave it indefinite. Countdowns
+  decrement at the **end of the affected combatant's own turn**; the DM
+  remains responsible for special timing such as "until the start of the
+  caster's next turn", saving throws, durations in minutes, or magical
+  effects requiring separate adjudication.
+- **Combat workflow:** Start Encounter, Next Turn, End Encounter, combat
+  status and color-coded initiative roster, freeform DM event notes,
+  chronological log, and in-session Undo Last Action (history is deliberately
+  not serialized with saved encounters). Real-time table updates.
+- **Persistence:** automatic, atomic save to `battle_trakker.json` alongside
+  `library.sqlite3` after each action. Closing or reopening the window and
+  restarting the application restores the encounter (round, current actor,
+  health, statuses, log, etc.). A malformed or corrupted battle file is
+  reported and left untouched, not silently replaced. Create a fresh
+  encounter only after a confirmation prompt.
+
+**Important separation:** Every combatant is an *encounter instance*.
+Tracking damage, conditions or initiative never edits the library's
+permanent PC/NPC/monster character sheets or maximum hit points. Species
+copies have independent IDs, HP and turns. No SQLite schema migration,
+cloud requests or AI model changes. The main Compendium banner, size,
+left sidebar width, 1:1 ability tiles and desktop styling remain intact.
+
+**Not yet automatic:** D&D 3.5 attacks of opportunity, readied/delayed
+actions, full attack sequence adjudication, feats/effects changing AC and
+bonuses dynamically, automatic spell duration at caster-specific timing,
+critical confirmation, challenge-rating/encounter-level/XP tables, treasure
+allocation, and advanced battle maps. These remain DM responsibilities
+until their dedicated rules engines and UI are implemented.
+
+Rules reference: D&D 3.5 SRD, Combat,
+https://www.d20srd.org/srd/combat/initiative.htm ,
+https://www.d20srd.org/srd/conditionSummary.htm and
+https://www.d20srd.org/srd/combat/injuryandDeath.htm .
