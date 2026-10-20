@@ -547,7 +547,7 @@ class BattleTrakkerDialog(QDialog):
         self.surprised.blockSignals(False)
         self.active.blockSignals(False)
         statuses = ", ".join(
-            f"{c['name']} ({c['rounds'] if c['rounds'] is not None else '∞'})"
+            f"{c['name']} ({c['rounds'] if c['rounds'] is not None else (self.battle.condition_remaining(fighter.uid, c['name']) or '∞')})"
             for c in fighter.conditions) or "None"
         self.detail.setText(
             f"{fighter.name} · AC {fighter.ac} · Initiative mod "
@@ -573,7 +573,7 @@ class BattleTrakkerDialog(QDialog):
                 if self.battle.phase=="surprise" and fighter.surprised:
                     turn = "—"
                 statuses = ", ".join(
-                    f"{entry['name']}({entry['rounds'] if entry['rounds'] is not None else '∞'})"
+                    f"{entry['name']}({entry['rounds'] if entry['rounds'] is not None else (self.battle.condition_remaining(fighter.uid, entry['name']) or '∞')})"
                     for entry in fighter.conditions)
                 values = [
                     turn, fighter.name, fighter.kind.upper(),
