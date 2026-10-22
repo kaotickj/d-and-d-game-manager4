@@ -156,7 +156,7 @@ class ForgeUiTests(unittest.TestCase):
         from dndgm4.ai_ui import AIWritingDialog
         with TemporaryDirectory() as tmp:
             win=MainWindow(CreatureRepository(Path(tmp)/"library.sqlite3"))
-            self.assertTrue(any("DM Narration" in x.text()
+            self.assertTrue(any("DM Assistant" in x.text()
                                 for x in win.findChildren(QPushButton)))
             with patch("dndgm4.ui.AIWritingDialog") as dlg:
                 win.open_narrator()

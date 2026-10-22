@@ -109,7 +109,7 @@ class CharacterSheetRulesTests(unittest.TestCase):
             self.assertEqual(old.sheet_json,"")
             self.assertEqual(old.name,"Legacy hero")
             with closing(sqlite3.connect(path)) as db:
-                self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0],2)
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0],SCHEMA_VERSION)
             # Second open must be idempotent.
             self.assertEqual(CreatureRepository(path).get("old").name,"Legacy hero")
 

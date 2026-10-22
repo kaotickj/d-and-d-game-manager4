@@ -2,17 +2,22 @@
 from __future__ import annotations
 
 import os
+import json
 import sqlite3
 import sys
+import tempfile
 from contextlib import contextmanager
-from dataclasses import fields
+from dataclasses import asdict, fields, replace
 from pathlib import Path
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterable, Iterator
 from uuid import uuid4
 
 from .models import Creature, KINDS
 
-SCHEMA_VERSION = 2
+if TYPE_CHECKING:
+    from .library_transfer import ImportSummary
+
+SCHEMA_VERSION = 6
 WRITE_COLUMNS = (
     "name", "kind", "race_type", "character_class", "level",
     "challenge_rating", "armor_class", "max_hit_points",
@@ -32,6 +37,16 @@ def default_database_path() -> Path:
 
 
 def validate(creature: Creature) -> None:
+    for attr in ("id", "name", "kind", "race_type", "character_class", "challenge_rating",
+                 "notes", "sheet_json", "created_at", "updated_at"):
+        if not isinstance(getattr(creature, attr), str):
+            raise ValueError(f"{attr.replace('_', ' ').title()} must be text.")
+    for attr in ("level", "armor_class", "max_hit_points", "strength", "dexterity",
+                 "constitution", "intelligence", "wisdom", "charisma"):
+        if type(getattr(creature, attr)) is not int:
+            raise ValueError(f"{attr.replace('_', ' ').title()} must be a whole number.")
+    if type(creature.archived) is not bool:
+        raise ValueError("Archived must be a checkbox value.")
     if creature.kind not in KINDS:
         raise ValueError("Record type must be PC, NPC, or monster.")
     if not creature.name.strip():
@@ -50,7 +65,7 @@ def validate(creature: Creature) -> None:
         import json
         try:
             sheet = json.loads(creature.sheet_json)
-        except (ValueError, TypeError) as exc:
+        except (ValueError, TypeError, RecursionError) as exc:
             raise ValueError("Character sheet must contain valid JSON.") from exc
         if not isinstance(sheet, dict):
             raise ValueError("Character sheet must be an object.")
@@ -61,6 +76,87 @@ def validate(creature: Creature) -> None:
 
 
 class CreatureRepository:
+    @contextmanager
+    def _output_path(self, destination: str | Path) -> Iterator[Path]:
+        """Publish complete files atomically; never replace the live database."""
+        target = Path(destination).resolve()
+        if target == self.path.resolve() or (
+            target.exists() and os.path.samefile(target, self.path)
+        ):
+            raise ValueError("Choose a destination other than the live library.")
+        descriptor, temporary = tempfile.mkstemp(dir=target.parent, prefix=".dndgm4-")
+        os.close(descriptor)
+        staging = Path(temporary)
+        try:
+            yield staging
+            os.replace(staging, target)
+        finally:
+            staging.unlink(missing_ok=True)
+
+    def backup(self, destination: str | Path) -> None:
+        """Snapshot the SQLite library, including committed WAL transactions."""
+        with self._output_path(destination) as staging:
+            with self._connection() as source:
+                target = sqlite3.connect(staging)
+                try:
+                    source.backup(target)
+                finally:
+                    target.close()
+
+    def export_json(self, destination: str | Path) -> int:
+        """Export every permanent record, including archives and character sheets."""
+        records = self.list(include_archived=True)
+        payload = {"format": "dndgm4-library", "version": 1,
+                   "creatures": [asdict(record) for record in records]}
+        with self._output_path(destination) as staging:
+            staging.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                               encoding="utf-8")
+        return len(records)
+
+    def preview_import(self, records: Iterable[Creature], *,
+                       duplicates: str = "skip") -> ImportSummary:
+        from .library_transfer import summarize_import, validate_import_records
+        batch = validate_import_records(records)
+        with self._connection() as db:
+            existing = {row[0] for row in db.execute("SELECT id FROM creatures")}
+        return summarize_import(batch, existing, duplicates)
+
+    def import_records(self, records: Iterable[Creature], *,
+                       duplicates: str = "skip") -> ImportSummary:
+        """Commit the validated batch together, using IDs to resolve collisions.
+
+        A write lock covers both conflict detection and insertion. Any validation
+        or database error leaves all existing records unchanged.
+        """
+        from .library_transfer import summarize_import, validate_import_records
+        batch = validate_import_records(records)
+        columns = ("id",) + WRITE_COLUMNS + ("created_at", "updated_at")
+        placeholders = ",".join(["?"] * (1 + len(WRITE_COLUMNS)) + [
+            "COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP)",
+            "COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP)"])
+        set_clause = ", ".join(f"{column} = excluded.{column}" for column in WRITE_COLUMNS)
+        sql = (f"INSERT INTO creatures ({','.join(columns)}) VALUES ({placeholders}) "
+               f"ON CONFLICT(id) DO UPDATE SET {set_clause}, updated_at = CURRENT_TIMESTAMP")
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            existing = {row[0] for row in db.execute("SELECT id FROM creatures")}
+            summary = summarize_import(batch, existing, duplicates)
+            reserved = existing | {record.id for record in batch}
+            for record in batch:
+                if record.id in existing:
+                    if duplicates == "skip":
+                        continue
+                    if duplicates == "copy":
+                        new_id = str(uuid4())
+                        while new_id in reserved:
+                            new_id = str(uuid4())
+                        reserved.add(new_id)
+                        record = replace(record, id=new_id, created_at="", updated_at="")
+                values = [getattr(record, column) for column in columns]
+                values[columns.index("archived")] = int(record.archived)
+                db.execute(sql, values)
+        return summary
+
     def __init__(self, database_path: str | Path):
         self.path = Path(database_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -121,6 +217,164 @@ class CreatureRepository:
             elif version == 1:
                 db.execute("ALTER TABLE creatures ADD COLUMN sheet_json TEXT NOT NULL DEFAULT ''")
                 db.execute("PRAGMA user_version = 2")
+            if version < 3:
+                # Add campaign state without rewriting creature rows or touching
+                # the older standalone scene and battle sidecar files.
+                if not db.in_transaction:
+                    db.execute("BEGIN IMMEDIATE")
+                statements = """
+                    CREATE TABLE campaigns (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        description TEXT NOT NULL DEFAULT '',
+                        notes TEXT NOT NULL DEFAULT '',
+                        archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE campaign_members (
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        creature_id TEXT NOT NULL REFERENCES creatures(id),
+                        PRIMARY KEY(campaign_id, creature_id)
+                    );
+                    CREATE TABLE sessions (
+                        id TEXT PRIMARY KEY,
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        title TEXT NOT NULL,
+                        session_date TEXT NOT NULL DEFAULT '',
+                        status TEXT NOT NULL DEFAULT 'planned'
+                            CHECK(status IN ('planned','in_progress','completed')),
+                        notes TEXT NOT NULL DEFAULT '',
+                        recap TEXT NOT NULL DEFAULT '',
+                        scene_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX idx_sessions_campaign ON sessions(campaign_id);
+                    CREATE TABLE encounters (
+                        id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL REFERENCES sessions(id),
+                        title TEXT NOT NULL,
+                        battle_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX idx_encounters_session ON encounters(session_id);
+                    CREATE TABLE workspace (
+                        id INTEGER PRIMARY KEY CHECK(id=1),
+                        campaign_id TEXT REFERENCES campaigns(id),
+                        session_id TEXT REFERENCES sessions(id),
+                        encounter_id TEXT REFERENCES encounters(id)
+                    );
+                    INSERT INTO workspace(id) VALUES(1);
+                    PRAGMA user_version = 3;
+                """
+                for statement in statements.split(";"):
+                    if statement.strip():
+                        db.execute(statement)
+
+            if version < 4:
+                if not db.in_transaction:
+                    db.execute("BEGIN IMMEDIATE")
+                statements = """
+                    CREATE TABLE world_records (
+                        id TEXT PRIMARY KEY,
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        kind TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'active',
+                        summary TEXT NOT NULL DEFAULT '',
+                        dm_notes TEXT NOT NULL DEFAULT '',
+                        details_json TEXT NOT NULL DEFAULT '{}',
+                        archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN(0,1)),
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX idx_world_campaign_kind
+                        ON world_records(campaign_id,kind,archived);
+                    CREATE INDEX idx_world_campaign_name
+                        ON world_records(campaign_id,name COLLATE NOCASE);
+                    CREATE TABLE world_links (
+                        id TEXT PRIMARY KEY,
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        source_id TEXT NOT NULL REFERENCES world_records(id),
+                        target_id TEXT NOT NULL REFERENCES world_records(id),
+                        relation TEXT NOT NULL,
+                        notes TEXT NOT NULL DEFAULT '',
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX idx_world_links_campaign ON world_links(campaign_id);
+                    PRAGMA user_version = 4;
+                """
+                for statement in statements.split(";"):
+                    if statement.strip():
+                        db.execute(statement)
+
+            if version < 5:
+                if not db.in_transaction:
+                    db.execute("BEGIN IMMEDIATE")
+                statements = """
+                    CREATE TABLE maps (
+                        id TEXT PRIMARY KEY,
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        title TEXT NOT NULL,
+                        image_path TEXT NOT NULL,
+                        state_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX maps_campaign ON maps(campaign_id,title COLLATE NOCASE);
+                    CREATE TABLE campaign_clock (
+                        campaign_id TEXT PRIMARY KEY REFERENCES campaigns(id),
+                        minutes INTEGER NOT NULL DEFAULT 0 CHECK(minutes >= 0),
+                        calendar_name TEXT NOT NULL DEFAULT 'Campaign calendar',
+                        days_per_month INTEGER NOT NULL DEFAULT 30,
+                        months_per_year INTEGER NOT NULL DEFAULT 12
+                    );
+                    CREATE TABLE time_changes (
+                        id TEXT PRIMARY KEY,
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        before_minutes INTEGER NOT NULL,
+                        after_minutes INTEGER NOT NULL,
+                        reason TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE resource_operations (
+                        id TEXT PRIMARY KEY,
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        payload_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE resource_ledger (
+                        id TEXT PRIMARY KEY,
+                        operation_id TEXT NOT NULL REFERENCES resource_operations(id),
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        account_id TEXT NOT NULL,
+                        cp_delta INTEGER NOT NULL,
+                        xp_delta INTEGER NOT NULL,
+                        reason TEXT NOT NULL,
+                        session_id TEXT REFERENCES sessions(id),
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(operation_id,account_id)
+                    );
+                    CREATE INDEX resource_ledger_campaign ON resource_ledger(campaign_id,account_id);
+                    PRAGMA user_version = 5;
+                """
+                for statement in statements.split(";"):
+                    if statement.strip():
+                        db.execute(statement)
+
+            if version < 6:
+                if not db.in_transaction:
+                    db.execute("BEGIN IMMEDIATE")
+                from .campaign_time import initialize_schema
+                from .resources import ensure_schema
+                from .handouts import ensure_schema as ensure_handouts
+                initialize_schema(db)
+                ensure_schema(db)
+                ensure_handouts(db)
+                db.execute("PRAGMA user_version = 6")
 
     @staticmethod
     def _from_row(row: sqlite3.Row) -> Creature:
@@ -194,3 +448,26 @@ class CreatureRepository:
                 (int(archived), record_id),
             )
             return cursor.rowcount > 0
+
+    def save_if_unchanged(self, creature: Creature, baseline: Creature) -> Creature:
+        """Save a reviewed edit only while its complete saved baseline still matches."""
+        if not isinstance(creature, Creature) or not isinstance(baseline, Creature):
+            raise ValueError("Choose the saved record that this edit was opened from.")
+        validate(creature)
+        if not baseline.id or creature.id != baseline.id:
+            raise ValueError("The edited record must match its original saved character.")
+        if any(getattr(creature, field) != getattr(baseline, field)
+               for field in ("created_at", "updated_at")):
+            raise ValueError("An edit cannot change the original record timestamps.")
+        values = [getattr(creature, column) for column in WRITE_COLUMNS]
+        values[WRITE_COLUMNS.index("archived")] = int(creature.archived)
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM creatures WHERE id=?", (baseline.id,)).fetchone()
+            if row is None or self._from_row(row) != baseline:
+                raise ValueError("This character changed while the draft was open. "
+                                 "Your draft is still available; cancel and reopen the character "
+                                 "to use its current saved state.")
+            db.execute("UPDATE creatures SET " + ",".join(f"{column}=?" for column in WRITE_COLUMNS) +
+                       ",updated_at=CURRENT_TIMESTAMP WHERE id=?", [*values, baseline.id])
+            return self._from_row(db.execute("SELECT * FROM creatures WHERE id=?", (baseline.id,)).fetchone())

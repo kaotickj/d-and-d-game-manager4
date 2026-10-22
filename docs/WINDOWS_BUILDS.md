@@ -1,7 +1,7 @@
 # Installing Windows test builds
 
-The **Windows installer** GitHub Actions workflow builds on every push to `main`,
-on manual dispatch, and on tags starting with `v`.
+The **Windows installer** GitHub Actions workflow builds on pull requests against
+`main`, every push to `main`, manual dispatch, and tags starting with `v`.
 
 ## Testing a new build
 
@@ -25,12 +25,22 @@ directory. Upgrading or uninstalling the application does not remove this file.
 **Still back up your library** before testing new development builds.
 Later database schema changes may not be backward-compatible.
 
+Version 0.10.0 uses library schema v6. Before upgrading, use **Library → Create
+Complete Campaign Backup…** to preserve the library, standalone scene and battle
+JSON, rules references, and managed map and handout images together. **Restore
+Complete Backup…** validates a copy in a new folder. SQLite-only backups include
+campaign parties, session journals/scenes, and named encounter combat state, but
+omit the standalone JSON, rules databases, and image files. Older app versions
+refuse a database schema newer than they support.
+
 ## Portable ZIP and releases
 
 Each successful run also publishes `DnDGameManager4-Portable.zip`.
 Version tags such as `v0.1.0` additionally create a GitHub Release
 with the installer and portable ZIP.
 
-The workflow creates build artifacts only on Windows GitHub-hosted runners.
-An uploaded artifact is not the same as a tested installation: check the
-Actions run and verify a real Windows installation before relying on it.
+The workflow builds on Windows GitHub-hosted runners and checks the packaged
+application, silent installation, reinstallation, retained campaign data, and
+schema migration. Check that the entire Actions run succeeded before choosing
+a build. An interactive upgrade from an older installed version and placement
+of the Player View on a physical second monitor still require manual testing.

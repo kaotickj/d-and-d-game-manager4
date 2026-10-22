@@ -5,12 +5,91 @@ Modern Python and PyQt6 continuation of **Dungeons & Dragons Game Manager
 (likely 4.03). Original source header credits Copyright 2001–2025
 **Kaosium Interactive**.
 
-## Status: v0.9.0, D&D 3.5 Encounter Command
+## Status: v0.10.0, campaign and session tools
 
 The **Compendium** provides a searchable, persistent SQLite library for player characters, NPCs and monster templates. **Battle Trakker** adds an independent live-combat encounter manager (Ctrl+B), and **Encounter Command** adds SRD 3.5 attacks, checks, saves, condition clocks, action budgets, and spell-slot tracking. Combat never mutates permanent creature templates.
 
-This remains **a partial D&D 3.5 rules engine**, not a full implementation. See
-[the roadmap](docs/ROADMAP.md) for the next milestones.
+The campaign tools now include linked world journals, a calibrated map desk and
+separate player display, fictional calendars and travel, audited treasure/XP and
+inventory, higher-level spell planning, reviewed multiclass advancement, and
+portable backup/restore. The Scribe can pass editable proposals into a review
+before any campaign field is saved. [Run a campaign](docs/PLAY_GUIDE.md) for the
+complete workflow.
+
+Rules lookup searches attributed offline summaries and explicitly imported SRD
+passages, with citations for Scribe context. This is retrieval; no model weights
+were trained. Optional SRD downloads and local AI generation start only through
+explicit controls. See [rules reference](docs/RULES_REFERENCE.md).
+
+Some D&D 3.5 mechanics still require DM review, including racial Hit Dice/level
+adjustment, prestige classes, complex feat interactions, detailed equipment
+modifiers and spell effects. The supported tools and remaining limits are
+recorded in [the completion scope](docs/FULL_FEATURE_PLAN.md).
+
+## Development: level up and prepare a session
+
+Select an active PC or NPC and click **Level Up…**. Choose a guided build or
+**Apply Class Defaults**, roll the class Hit Die with the built-in roller (or
+enter a tabletop result), and pick skills, feats, class options, and an ability
+increase when due. Review the resulting level, HP, BAB, and base saves before
+**Save Level Up**. Defaults fill editable choices and never roll or save on their
+own. Each level stores its dice and choices in the character's level history.
+
+The eleven core classes and five NPC classes have numeric progressions through
+level 20. Every existing class template has a default training strategy.
+Supplemental and homebrew classes first collect a DM-confirmed progression
+profile, which is remembered for later levels. Higher-level spell plans track each casting class separately, with reviewed
+known/prepared/domain choices. **Multiclass Advancement** confirms class history
+before adding class levels. Unmodeled features and situational effects remain
+reviewed entries. See
+[the advancement rules and scope](docs/ADVANCEMENT_RULES.md).
+
+**The Scribe / DM Assistant** supports scene narration, campaign planning,
+session preparation, advice during play, and session recaps. Load a scene or
+selected records, choose the task, and add a request. **Discuss Current Battle
+with Scribe** loads the current encounter's HP, initiative, conditions, effects,
+and history for advice. Generated text stays editable and can be copied or
+saved as a text/Markdown draft. Only **Generate Locally** starts inference; an
+existing local GGUF model/llama.cpp runtime or Ollama installation is required.
+Plans and advice do not change saved statistics or decide player actions.
+
+**Roll a Random Encounter** prepares an editable scene, creature group, motives,
+hook, complication, and read-aloud text, with an auditable roll log. Use active
+NPC/monster templates or roll original creature baselines even in an empty
+library. Original creatures roll abilities and HP; saved templates retain their
+statistics. Choose a count such as `1d4`, `2d6`, or a fixed number from 1 to 12,
+and optionally roll initiative. Review the creatures and scene before saving as
+the current scene, adding independent copies to Battle Trakker, or opening the
+proposal in the Scribe. Battle handoff adds to the current encounter; combat
+starts separately. Original creatures have no assigned CR, and encounter balance
+is reviewed by the DM. Reopen the generator to reuse its last roll and edits for
+another handoff during the same app session. Templates are never changed by
+encounter generation.
+
+The Scribe currently accepts 6,000 characters of context plus request. Oversized
+context is reported before generation, without silently truncating saved facts.
+
+## Campaigns and sessions
+
+Open **Campaigns & Sessions…** to create a campaign, choose its party, keep
+session notes and reviewed recaps, and create named encounters. Select a session
+and encounter, then click **Open Selected Session / Encounter**. The active
+campaign/session/encounter is shown above the Compendium and restored on restart.
+Each session owns its scene; each encounter owns its HP, initiative, conditions,
+effects, and combat history. Switching saves the old workspace before opening
+the next one. **Add Campaign Party to Scene** explicitly marks the saved party
+as present; membership alone does not put anyone into a scene or combat.
+
+The manager can send campaign and session context to the Scribe, including prior
+completed recaps and the selected party/scene records. **Plan Campaign in Scribe**
+also works before the first session exists. Plans and scene descriptions are
+kept distinct from evidence about events that actually happened.
+
+Existing local saves remain available through **Standalone Workspace**.
+**Import Standalone Scene/Battle** copies them into a new campaign session and
+encounter without changing the originals. Journal saves commit campaign edits,
+party membership, and session notes together. See
+[campaign workflows and backup scope](docs/CAMPAIGNS.md).
 
 ## Installation (Python 3.11+)
 
@@ -30,13 +109,52 @@ The SQLite database is created in the user application data directory,
 - Linux: ~/.local/share/DnDGameManager4/library.sqlite3 (or XDG_DATA_HOME)
 - macOS: ~/Library/Application Support/DnDGameManager4/library.sqlite3
 
-Back up this file before switching to a future application version.
+Before upgrading, use **Library → Create Complete Campaign Backup…** to preserve
+the library, standalone scene and battle saves, rules references, and managed
+map and handout images together. **Library → Restore Complete Backup…** validates
+the archive and restores a copy into a new folder, preserving the current library.
+See the [play guide](docs/PLAY_GUIDE.md) for the complete workflow.
+
+**Library → Back Up Library…** saves a consistent SQLite-only snapshot while
+the app is running. **Library → Export Library as JSON…** exports all permanent
+PC, NPC, and monster records, including archived records and character sheets.
+Both commands write complete files before replacing an existing destination and
+refuse to overwrite the active database. The **SQLite backup includes campaigns,
+parties, session journals and scenes, named encounter state, and the active
+workspace**. JSON export/import covers creature records only. Standalone
+`current_scene.json`, `battle_trakker.json`, rules databases, and managed map and
+handout image files are not included in a SQLite-only backup. Restoring just
+SQLite can leave image references without their files. For a SQLite-only
+restore, close the app, preserve the current database, and copy the backup to
+the database location listed above; preserve and restore its supporting files
+separately. Use Complete Campaign Backup for recovery of the whole campaign.
+
+**Library → Import Library from JSON…** opens a preview of a DnDGM4 JSON export.
+Records match by their saved IDs, including archived records; matching names
+alone do not count as duplicates. Choose one policy for matching IDs:
+
+- **Skip existing records** (default) keeps the local version.
+- **Keep both as separate records** adds matching records under fresh IDs,
+  retaining their imported names, sheets, and archived status.
+- **Replace existing records** overwrites the saved fields of matching records,
+  including notes, sheets, and archived status. Local creation dates are retained.
+
+The preview shows counts and each record's action before you click **Import**.
+Cancel leaves the library unchanged. The entire file is validated first, and
+the batch is committed together; a failure rolls back all changes. Import accepts
+version 1 UTF-8 exports up to 32 MiB and 10,000 records. It rejects unknown fields,
+invalid record values, and repeated IDs within the same file. Original IDs and
+timestamps are retained for new records; copies receive new timestamps.
+Legacy `.crs` files and scene/encounter state are not imported by this command.
 
 Run tests without installing Qt:
 
 ```sh
 python -m unittest discover -s tests -v
 ```
+
+After installing the project dependencies, run the same suite with
+`QT_QPA_PLATFORM=offscreen` to include the Qt interface tests on headless Linux.
 
 ## Historical source
 
@@ -603,4 +721,4 @@ This milestone extends Battle Trakker v0.8.0 (which remains available with Ctrl+
 
 **Limits:** This is not an exhaustive D&D 3.5 combat engine. Spell-specific effects, non-SRD sourcebooks, prestige-class spells, tactical movement and attacks of opportunity, nuanced feat/equipment stacking, precision damage, grappling/trip/disarm and other advanced rulings remain for the DM to review. The optional spell index importer needs a deliberate initial online operation; normal combat tracking needs no internet.
 
-The Windows installer and portable ZIP are built by GitHub Actions. For an up-to-date test build, open the most recent successful **Windows installer** run on the `main` branch and download its `DnDGameManager4-Windows-*` artifact. Installer versions are read from `pyproject.toml`.
+The Windows installer and portable ZIP are built by GitHub Actions. For an up-to-date test build, open the most recent successful **Windows installer** run for the current pull request or `main` branch and download its `DnDGameManager4-Windows-*` artifact. Installer versions are read from `pyproject.toml`.

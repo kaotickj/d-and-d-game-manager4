@@ -6,6 +6,7 @@ The original Compendium, its banner and ability-score grid are untouched.
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 from uuid import uuid4
 
 from PyQt6.QtCore import Qt
@@ -126,14 +127,14 @@ class BattleTrakkerDialog(QDialog):
     """One independently autosaved encounter with live initiative and HP."""
 
     def __init__(self, library: CreatureRepository, parent=None, *,
-                 scene: dict | None = None):
+                 scene: dict | None = None, store=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.setWindowTitle("Battle Trakker | D&D 3.5 Combat Manager")
         self.resize(1200, 810)
         self.setMinimumSize(790, 570)
         self.library = library
-        self.store = BattleStore(library.path)
+        self.store = store if store is not None else BattleStore(library.path)
         self.battle = self.store.load()  # never overwrite malformed saves
         self.scene = scene or {}
         root = QVBoxLayout(self)
@@ -360,7 +361,7 @@ class BattleTrakkerDialog(QDialog):
         try:
             self._save()
             self.detail.setText("Encounter saved locally: " + str(self.store.path))
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Encounter save failed", str(exc))
 
     def _run(self, callback, *, select_id=None):
@@ -369,7 +370,7 @@ class BattleTrakkerDialog(QDialog):
             self._save()  # also autosave each action so a crash won't erase play
             self.render(select_id=select_id)
             return result
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Battle Trakker", str(exc))
             self.render()
             return None

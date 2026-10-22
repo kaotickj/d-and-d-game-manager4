@@ -24,6 +24,73 @@ from .spell_rules import CASTERS, SPELL_LISTS, spell_profile
 from .build_rules import feat_review, inventory_from_text
 
 
+# These fields belong to the history and spell-management desks. The Forge
+# edits first-level selections; it cannot reconcile their class/race context.
+_SAVED_BUILD_CONTEXT = frozenset({
+    "class_levels", "progression", "advancement_history", "advancement_profile",
+    "advancement_choices", "multiclass_baseline", "multiclass_audit",
+    "multiclass_choices", "multiclass_class_skills", "multiclass_original_progression",
+    "spell_progression",
+})
+
+
+def _read_edit_sheet(creature):
+    """Read the whole original object without dropping malformed metadata."""
+    text = creature.sheet_json
+    if text == "":
+        return {}
+    if not isinstance(text, str) or len(text) > 262144:
+        raise ValueError("The saved character sheet must be JSON text under its size limit.")
+
+    def object_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("The saved character sheet contains duplicate JSON fields.")
+            result[key] = value
+        return result
+
+    def invalid_number(value):
+        raise ValueError("The saved character sheet contains a nonfinite JSON number.")
+
+    try:
+        text.encode("utf-8")
+        data = json.loads(text, object_pairs_hook=object_pairs, parse_constant=invalid_number)
+        if not isinstance(data, dict):
+            raise ValueError("The saved character sheet must be a JSON object.")
+        # Decode-and-encode also detects escaped invalid Unicode in nested data.
+        json.dumps(data, ensure_ascii=False, allow_nan=False).encode("utf-8")
+    except (ValueError, TypeError, RecursionError, UnicodeError) as exc:
+        raise ValueError(f"The saved character sheet could not be read safely: {exc}") from exc
+    return data
+
+
+def _check_edit_context(original, edited_class, edited_race):
+    data = _read_edit_sheet(original)
+    if original.level != 1:
+        raise ValueError("The Character Forge edits first-level characters. Use the record editor or advancement desks for this character.")
+    if (edited_class != original.character_class or edited_race != original.race_type) and _SAVED_BUILD_CONTEXT.intersection(data):
+        raise ValueError("This character has saved class history or spell plans. Changing class or race requires explicit reconciliation in the class-history workflow or a separate character copy. Your Forge draft is kept.")
+    return data
+
+
+def _merge_edit_metadata(original, created):
+    original_data = _check_edit_context(original, created.character_class, created.race_type)
+    edited_data = _read_edit_sheet(created)
+    # build_sheet produces the Forge-owned fields (identity, first-level
+    # skills/feats, equipment, story, inventory and starter spellbook). Overlay
+    # those deliberate edits while retaining every unrelated saved field.
+    merged = {**original_data, **edited_data}
+    try:
+        text = json.dumps(merged, ensure_ascii=False, sort_keys=True, allow_nan=False)
+        text.encode("utf-8")
+    except (TypeError, ValueError, RecursionError, UnicodeError) as exc:
+        raise ValueError("The edited sheet could not preserve its original metadata safely.") from exc
+    if len(text) > 262144:
+        raise ValueError("The edited character sheet exceeds its size limit; the original metadata has been retained.")
+    return replace(created, sheet_json=text)
+
+
 def text_label(value: str, role: str = "", *, wrap: bool = False) -> QLabel:
     label = QLabel(value)
     label.setTextFormat(Qt.TextFormat.PlainText)
@@ -153,6 +220,7 @@ class CharacterCreatorDialog(QDialog):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.original = creature
+        self._original_sheet_error = None
         self.kind = creature.kind if creature is not None else kind
         if self.kind not in ("pc", "npc"):
             raise ValueError("Character Forge supports PCs and NPCs.")
@@ -397,7 +465,11 @@ class CharacterCreatorDialog(QDialog):
         self.change_method()
         self.change_creation_mode()
         if self.original is not None:
-            self.load_character(self.original)
+            try:
+                self.load_character(self.original)
+            except (ValueError, TypeError, KeyError, AttributeError, RecursionError) as exc:
+                self._original_sheet_error = f"The saved character sheet could not be loaded safely: {exc}"
+                self.message.setText(self._original_sheet_error + " Saving is blocked; preserve and repair the original sheet before reopening the Forge.")
 
     def change_creation_mode(self,*args):
         mode=self.creation_mode.currentData()
@@ -572,7 +644,7 @@ class CharacterCreatorDialog(QDialog):
             self.character_class.setCurrentIndex(self.character_class.count()-1)
             self.options.custom_class_name.setText(creature.character_class)
         self.method.setCurrentIndex(2)
-        race_sheet = json.loads(creature.sheet_json) if creature.sheet_json else {}
+        race_sheet = _read_edit_sheet(creature)
         if self.kind == "npc":
             self.npc_cr.setText(creature.challenge_rating)
             meta = race_sheet.get("npc_ancestry", {})
@@ -721,12 +793,17 @@ class CharacterCreatorDialog(QDialog):
         )
 
     def save_character(self):
+        self.result_creature = None
         method = self.method.currentData()
         if method != "manual" and len(self.session.rolls) != 6:
             QMessageBox.warning(self, "Roll required",
                                 "Roll all six ability scores before saving.")
             return
         try:
+            if self._original_sheet_error:
+                raise ValueError(self._original_sheet_error + " Saving is blocked to preserve the original sheet.")
+            if self.original is not None:
+                _check_edit_context(self.original, self.options.current_class(), self.race.currentText())
             if self.creation_mode.currentData()=="ai" and not self.ai_draft_applied:
                 raise ValueError("Generate and review an AI character draft before saving.")
             class_name = self.options.current_class()
@@ -783,6 +860,7 @@ class CharacterCreatorDialog(QDialog):
                 created=replace(created,sheet_json=json.dumps(metadata,sort_keys=True))
             
             if self.original is not None:
+                created = _merge_edit_metadata(self.original, created)
                 created=replace(created,id=self.original.id,
                                 archived=self.original.archived,
                                 created_at=self.original.created_at,

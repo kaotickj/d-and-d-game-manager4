@@ -34,12 +34,12 @@ class ResponsiveLayoutTests(unittest.TestCase):
             self.assertIsNotNone(sidebar)
             self.assertEqual(sidebar.width(), 326)
             self.assertEqual(window.width() - sidebar.width(), 1225)
-            # The existing controls stay in the sidebar and keep their labels.
+            # The navigation stays visible alongside the expanded DM assistant.
             button_labels = {widget.text() for widget in
                              sidebar.findChildren(QPushButton)}
             for label in ("Nonplayer Characters",
                           "RPG NAME GENIE  /  Generate Names",
-                          "The Scribe  /  DM Narration", "+  New Monster"):
+                          "The Scribe  /  DM Assistant", "+  New Monster"):
                 self.assertIn(label, button_labels)
             self.assertEqual(window.hero_banner.height(), 166)
             # The 10% enlargement is of the outer window only; artwork,

@@ -1,12 +1,13 @@
 """PyQt6 application for permanent character/NPC/monster library records."""
 from dataclasses import replace
+import sqlite3
 
-from PyQt6.QtCore import Qt, QItemSelectionModel
+from PyQt6.QtCore import Qt, QItemSelectionModel, QSettings
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
-    QApplication, QButtonGroup, QCheckBox, QDialog, QFormLayout, QFrame, QGridLayout,
+    QApplication, QButtonGroup, QCheckBox, QDialog, QFileDialog, QFormLayout, QFrame, QGridLayout,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
-    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
+    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QInputDialog,
     QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QSizePolicy,
 )
 
@@ -14,6 +15,8 @@ from . import __version__
 from .artwork import CoverArtLabel, load_artwork, window_icon
 from .models import Creature, KIND_LABELS
 from .storage import CreatureRepository
+from .library_transfer import read_library_export
+from .import_ui import ImportPreviewDialog
 from .name_ui import NamePickerDialog
 from .roll_ui import CharacterCreatorDialog, DiceDialog
 from .monster_ui import MonsterCreatorDialog
@@ -89,7 +92,7 @@ def rule():
     return line
 
 def action(text, callback, role=""):
-    widget = QPushButton(text)
+    widget = QPushButton(text.replace("&", "&&"))
     if role:
         widget.setObjectName(role)
     widget.clicked.connect(callback)
@@ -239,16 +242,46 @@ class MainWindow(QMainWindow):
     def __init__(self, library: CreatureRepository):
         super().__init__()
         self.library = library
-        self.scene_store = SceneStore(library.path)
+        library_menu = self.menuBar().addMenu("Library")
+        library_menu.addAction("Back Up Library…", self.backup_library)
+        library_menu.addAction("Export Library as JSON…", self.export_library)
+        library_menu.addAction("Import Library from JSON…", self.import_library)
+        library_menu.addSeparator()
+        library_menu.addAction("Create Complete Campaign Backup…", self.backup_campaign_data)
+        library_menu.addAction("Restore Complete Backup…", self.restore_campaign_data)
+        library_menu.addAction("Choose Library for Next Launch…", self.choose_library)
+        tools_menu = self.menuBar().addMenu("Campaign Tools")
+        tools_menu.addAction("Campaigns && Sessions…", self.open_campaigns)
+        tools_menu.addAction("World Desk && Quest Journal…", self.open_world)
+        tools_menu.addAction("Maps && Player View…", self.open_maps)
+        tools_menu.addAction("Campaign Time && Travel…", self.open_campaign_time)
+        tools_menu.addAction("Treasure && XP Ledger…", self.open_resources)
+        tools_menu.addAction("Handout Gallery…", self.open_handouts)
+        tools_menu.addAction("Review Scribe Proposals…", self.open_reviewed_drafts)
+        tools_menu.addAction("Search D&&D 3.5 Rules…", self.open_rules)
+        tools_menu.addAction("Manage Selected Character's Spells…", self.open_spell_progression)
+        tools_menu.addAction("Multiclass Advancement…", self.open_multiclass)
+        from .campaigns import ActiveWorkspace, CampaignRepository, SessionSceneStore
+        self.campaigns = CampaignRepository(library.path)
+        self._workspace_error = ""
+        try:
+            self.workspace = self.campaigns.get_workspace()
+        except (ValueError, sqlite3.Error) as exc:
+            self.workspace = ActiveWorkspace()
+            self._workspace_error = str(exc)
+        self.scene_store = (SessionSceneStore(self.campaigns, self.workspace.session_id)
+                            if self.workspace.session_id else SceneStore(library.path))
         self._scene_error = ""
         try:
             self.scene = self.scene_store.load()
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, sqlite3.Error) as exc:
             # Leave a damaged scene file intact. Do not crash the entire app.
             self.scene = blank_scene()
             self._scene_error = str(exc)
         self.active_kind = None
         self._battle_window = None
+        self._encounter_generator_dialog = None
+        self._encounter_generator_dialogs = {}
         self.setWindowTitle(f"Dungeons & Dragons Game Manager 4 · {__version__} · The Compendium")
         self.setWindowIcon(window_icon())
         # 10% larger default desktop window; do not scale fonts, banners,
@@ -267,6 +300,14 @@ class MainWindow(QMainWindow):
         body = QVBoxLayout(workspace)
         body.setContentsMargins(27, 25, 27, 20)
         body.setSpacing(15)
+        workspace_line = QHBoxLayout()
+        self.workspace_label = caption("", "muted", wrap=True)
+        self.workspace_label.setAccessibleName("Active campaign, session, and encounter")
+        workspace_line.addWidget(self.workspace_label, 1)
+        self.campaigns_button = action("Campaigns & Sessions…", self.open_campaigns)
+        workspace_line.addWidget(self.campaigns_button)
+        body.addLayout(workspace_line)
+        self._update_workspace_label()
         # Scroll the original dashboard when height is limited; this does not
         # alter its header/banner presentation or default spacing.
         self.workspace_scroll = QScrollArea()
@@ -288,6 +329,381 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=self.open_narrator)
         QShortcut(QKeySequence("Ctrl+B"), self, activated=self.open_battle_trakker)
         self.refresh()
+
+    def _update_workspace_label(self):
+        if not self.workspace.session_id:
+            text = "Standalone workspace · local scene and encounter"
+        else:
+            campaign = self.campaigns.get_campaign(self.workspace.campaign_id)
+            session = self.campaigns.get_session(self.workspace.session_id)
+            encounter = (self.campaigns.get_encounter(self.workspace.encounter_id)
+                         if self.workspace.encounter_id else None)
+            text = f"{campaign.name if campaign else 'Campaign'} / {session.title if session else 'Session'}"
+            if encounter is not None:
+                text += f" / {encounter.title}"
+        if self._workspace_error:
+            text += " · saved workspace needs review"
+        self.workspace_label.setText(text)
+
+    def _flush_workspace(self):
+        if self._battle_window is not None:
+            self._battle_window._save()
+        # Preserve unreadable scenes in place; switching away must never
+        # replace a damaged saved scene with the blank error fallback.
+        if not self._scene_error:
+            self.scene_store.save(self.scene)
+
+    def switch_workspace(self, workspace):
+        """Validate the destination and save the current state before switching."""
+        from .campaigns import ActiveWorkspace, CampaignBattleStore, SessionSceneStore
+        from .battle_advanced import AdvancedBattleStore
+        if not isinstance(workspace, ActiveWorkspace):
+            raise ValueError("Choose a saved campaign session or the standalone workspace.")
+        self._flush_workspace()
+        if workspace.session_id:
+            scene_store = SessionSceneStore(self.campaigns, workspace.session_id)
+            scene = scene_store.load()
+            if workspace.encounter_id:
+                CampaignBattleStore(self.campaigns, workspace.encounter_id).load()
+        else:
+            if workspace.campaign_id or workspace.encounter_id:
+                raise ValueError("A campaign workspace requires a session.")
+            scene_store = SceneStore(self.library.path)
+            scene = scene_store.load()
+            # Leave a damaged standalone battle untouched and stay in the
+            # current session until it is repaired or explicitly imported.
+            AdvancedBattleStore(self.library.path).load()
+        if workspace.session_id:
+            activated = self.campaigns.activate(workspace.campaign_id, workspace.session_id,
+                                                workspace.encounter_id)
+        else:
+            self.campaigns.clear_workspace()
+            activated = ActiveWorkspace()
+        self._encounter_generator_dialogs[self.workspace.session_id] = self._encounter_generator_dialog
+        if self._battle_window is not None:
+            if hasattr(self._battle_window, "advanced_desk"):
+                self._battle_window.advanced_desk.hide()
+            self._battle_window.hide()
+            self._battle_window.deleteLater()
+            self._battle_window = None
+        writer = getattr(self, "_narrator_dialog", None)
+        if writer is not None:
+            writer.hide()
+        self.workspace = activated
+        self.scene_store, self.scene = scene_store, scene
+        self._scene_error = self._workspace_error = ""
+        self._encounter_generator_dialog = self._encounter_generator_dialogs.get(activated.session_id)
+        self._update_workspace_label()
+        self.statusBar().showMessage("Workspace opened · " + self.workspace_label.text())
+
+    def open_campaigns(self):
+        from .campaigns import ActiveWorkspace
+        from .campaign_ui import CampaignManagerDialog
+        try:
+            self._flush_workspace()
+            dialog = CampaignManagerDialog(self.campaigns, self.library, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                if dialog.result_action in ("open", "standalone"):
+                    target = (dialog.result_workspace if dialog.result_action == "open"
+                              else ActiveWorkspace())
+                    self.switch_workspace(target)
+                elif dialog.result_action == "legacy_import":
+                    from .battle_advanced import AdvancedBattleStore
+                    local_scene = SceneStore(self.library.path).load()
+                    local_battle = AdvancedBattleStore(self.library.path).load()
+                    session = self.campaigns.import_legacy_session(
+                        dialog.result_workspace.campaign_id, local_scene, local_battle)
+                    encounter = self.campaigns.list_encounters(session.id)[0]
+                    self.switch_workspace(ActiveWorkspace(session.campaign_id, session.id, encounter.id))
+                elif dialog.result_action == "scribe":
+                    self.open_campaign_scribe(dialog.result_session_id, dialog.result_task,
+                                              campaign_id=dialog.result_workspace.campaign_id)
+            current_campaign = (self.campaigns.get_campaign(self.workspace.campaign_id)
+                                if self.workspace.campaign_id else None)
+            if current_campaign is not None and current_campaign.archived:
+                self.switch_workspace(ActiveWorkspace())
+            self._update_workspace_label()
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Campaign workspace not opened", str(exc))
+
+    def open_campaign_scribe(self, session_id, task="session_plan", *, campaign_id=""):
+        from .campaign_context import build_campaign_context, build_campaign_planning_context
+        if task == "campaign_plan" and not session_id:
+            context = build_campaign_planning_context(self.campaigns, self.library, campaign_id)
+        else:
+            context = build_campaign_context(self.campaigns, self.library, session_id, task=task)
+        self._open_scribe_with_context(context, task=task)
+
+    def add_party_to_scene(self):
+        try:
+            self._check_scene()
+            if not self.workspace.campaign_id:
+                raise ValueError("Open a campaign session before adding its party.")
+            party = self.campaigns.party(self.workspace.campaign_id)
+            if not party:
+                raise ValueError("Choose and save a party in Campaigns & Sessions first.")
+            if any(record.archived for record in party):
+                raise ValueError("The party includes archived records. Restore them or edit the party first.")
+            scene = add_records(self.scene, [record.id for record in party])
+            self.scene_store.save(scene)
+            self.scene = scene
+            self.statusBar().showMessage(f"Added {len(party)} party members to this session's scene.")
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Party not added", str(exc))
+
+    def _battle_store(self, *, create=False):
+        from .campaigns import CampaignBattleStore
+        from .battle_advanced import AdvancedBattleStore
+        if not self.workspace.session_id:
+            return AdvancedBattleStore(self.library.path)
+        if not self.workspace.encounter_id:
+            if not create:
+                return None
+            encounters = self.campaigns.list_encounters(self.workspace.session_id)
+            encounter = encounters[0] if encounters else self.campaigns.create_encounter(
+                self.workspace.session_id, "Encounter 1")
+            store = CampaignBattleStore(self.campaigns, encounter.id)
+            store.load()
+            self.workspace = self.campaigns.activate(self.workspace.campaign_id,
+                                                      self.workspace.session_id, encounter.id)
+            self._update_workspace_label()
+            return store
+        return CampaignBattleStore(self.campaigns, self.workspace.encounter_id)
+
+    def backup_library(self):
+        self._save_library_file(backup=True)
+
+    def _choose_campaign(self):
+        campaigns = self.campaigns.list_campaigns()
+        if not campaigns:
+            QMessageBox.information(self, "Create a campaign first",
+                                    "Use Campaigns & Sessions to create and save a campaign.")
+            return None
+        labels = [f"{campaign.name}  ·  {campaign.id[:8]}" for campaign in campaigns]
+        active = next((i for i, campaign in enumerate(campaigns)
+                       if campaign.id == self.workspace.campaign_id), 0)
+        selected, accepted = QInputDialog.getItem(
+            self, "Choose Campaign", "Campaign", labels, active, False)
+        return campaigns[labels.index(selected)].id if accepted else None
+
+    def open_world(self):
+        from .world import WorldRepository
+        from .world_ui import WorldManagerDialog
+        try:
+            campaign_id = self._choose_campaign()
+            if campaign_id is None:
+                return
+            dialog = WorldManagerDialog(WorldRepository(self.library.path), campaign_id,
+                                        library=self.library, parent=self)
+            dialog.context_requested.connect(
+                lambda context: self._open_scribe_with_context(context, task="dm_advice"))
+            dialog.exec()
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "World Desk unavailable", str(exc))
+
+    def open_rules(self):
+        from .rules_reference import RulesRepository
+        from .rules_ui import RulesReferenceDialog
+        try:
+            dialog = RulesReferenceDialog(
+                RulesRepository(self.library.path.with_name("rules.sqlite3")), self)
+            dialog.context_requested.connect(
+                lambda context: self._open_scribe_with_context(context, task="dm_advice"))
+            dialog.exec()
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Rules Reference unavailable", str(exc))
+
+    def _open_campaign_tool(self, factory, title):
+        try:
+            campaign_id = self._choose_campaign()
+            if campaign_id is not None:
+                factory(campaign_id).exec()
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, title, str(exc))
+
+    def open_maps(self):
+        from .map_ui import MapDeskDialog
+        self._open_campaign_tool(
+            lambda identity: MapDeskDialog(self.library, identity, parent=self), "Maps unavailable")
+
+    def open_campaign_time(self):
+        from .time_ui import CampaignTimeDialog
+        self._open_campaign_tool(
+            lambda identity: CampaignTimeDialog(self.library.path, identity, parent=self),
+            "Campaign Time unavailable")
+
+    def open_resources(self):
+        from .resources_ui import ResourcesDialog
+        def open_dialog(identity):
+            dialog = ResourcesDialog(self.library.path, identity, parent=self)
+            dialog.character_changed.connect(lambda record_id: self.refresh(select_id=record_id))
+            return dialog
+        self._open_campaign_tool(
+            open_dialog,
+            "Resource Ledger unavailable")
+
+    def open_reviewed_drafts(self):
+        from .reviewed_drafts_ui import ReviewedDraftsDialog
+        self._open_campaign_tool(
+            lambda identity: ReviewedDraftsDialog(self.library.path, identity, parent=self),
+            "Proposal Review unavailable")
+
+    def open_handouts(self):
+        from .handouts_ui import HandoutGalleryDialog
+        self._open_campaign_tool(
+            lambda identity: HandoutGalleryDialog(self.library, identity, parent=self),
+            "Handout Gallery unavailable")
+
+    def review_scribe_draft(self, text, *, task="session_plan"):
+        from .reviewed_drafts_ui import ReviewedDraftsDialog
+        try:
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError("Write or generate a Scribe draft before reviewing it.")
+            campaign_id = self.workspace.campaign_id or self._choose_campaign()
+            if campaign_id is None:
+                return
+            self._flush_workspace()
+            session_id = (self.workspace.session_id
+                          if campaign_id == self.workspace.campaign_id else None)
+            dialog = ReviewedDraftsDialog(self.library.path, campaign_id, parent=self)
+            if dialog.load_scribe_draft(text, task=task, session_id=session_id):
+                dialog.exec()
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Draft not loaded", str(exc))
+
+    def open_spell_progression(self):
+        from .spell_progression_ui import SpellProgressionDialog
+        record = self.selected()
+        if record is None:
+            QMessageBox.information(self, "Select a character", "Select one saved character to manage spells.")
+            return
+        try:
+            SpellProgressionDialog(self.library, record.id, parent=self).exec()
+            self.refresh(select_id=record.id)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Spell Management unavailable", str(exc))
+
+    def open_multiclass(self):
+        from .multiclass_ui import MulticlassDialog
+        record = self.selected()
+        if record is None:
+            QMessageBox.information(self, "Select a character", "Select one saved character to advance.")
+            return
+        try:
+            MulticlassDialog(self.library, record.id, parent=self).exec()
+            self.refresh(select_id=record.id)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Multiclass Advancement unavailable", str(exc))
+
+    def backup_campaign_data(self):
+        from .recovery import create_backup
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Complete Campaign Backup", "campaign-backup.dndbackup",
+            "D&D campaign backup (*.dndbackup)")
+        if not filename:
+            return
+        try:
+            self._flush_workspace()
+            manifest = create_backup(self.library, filename)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Backup not saved", str(exc))
+            return
+        self.statusBar().showMessage(f"Complete backup saved · {len(manifest['files'])} files · {filename}")
+
+    def restore_campaign_data(self):
+        from pathlib import Path
+        from .recovery import inspect_backup, restore_backup
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Restore Complete Backup", "", "D&D campaign backup (*.dndbackup);;ZIP archives (*.zip)")
+        if not filename:
+            return
+        try:
+            manifest = inspect_backup(filename)
+            choice = QMessageBox.question(
+                self, "Review Backup",
+                f"Backup created: {manifest.get('created_at', 'unknown')}\n"
+                f"Files: {len(manifest['files'])}\n\n"
+                "Restore into a new folder? The current library will be preserved.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel)
+            if choice != QMessageBox.StandardButton.Yes:
+                return
+            folder, _ = QFileDialog.getSaveFileName(
+                self, "Name a New Recovery Folder", str(Path(filename).with_suffix("")) + "-restored", "Folders (*)")
+            if not folder:
+                return
+            restored_path = restore_backup(filename, folder)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Backup not restored", str(exc))
+            return
+        self._offer_library_on_restart(restored_path)
+
+    def choose_library(self):
+        from .recovery import _check_database
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Choose Library for Next Launch", "", "SQLite library (*.sqlite3)")
+        if not filename:
+            return
+        try:
+            from pathlib import Path
+            _check_database(Path(filename).resolve(), library=True)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Library not selected", str(exc))
+            return
+        self._offer_library_on_restart(filename)
+
+    def _offer_library_on_restart(self, path):
+        from pathlib import Path
+        choice = QMessageBox.question(
+            self, "Library Ready",
+            f"Library available at:\n{path}\n\nUse this library the next time the application starts? "
+            "Save any open drafts, then close and reopen the app.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if choice == QMessageBox.StandardButton.Yes:
+            QSettings("Kaotick Jay", "DnDGameManager4").setValue("library/path", str(Path(path).resolve()))
+            self.statusBar().showMessage(f"Next launch will use · {path}")
+
+    def export_library(self):
+        self._save_library_file(backup=False)
+
+    def import_library(self):
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Import Library from JSON", "", "JSON files (*.json)")
+        if not filename:
+            return
+        try:
+            records = read_library_export(filename)
+            dialog = ImportPreviewDialog(self.library, records, self)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Import Library", str(exc))
+            return
+        result = dialog.result_summary
+        if result is None:
+            return
+        self.refresh()
+        self.statusBar().showMessage(
+            f"Library import complete · {result.added} added, {result.copied} copied, "
+            f"{result.replaced} replaced, {result.skipped} skipped")
+
+    def _save_library_file(self, *, backup):
+        title = "Back Up Library" if backup else "Export Library as JSON"
+        filename, _ = QFileDialog.getSaveFileName(
+            self, title, "library-backup.sqlite3" if backup else "library-export.json",
+            "SQLite database (*.sqlite3)" if backup else "JSON files (*.json)")
+        if not filename:
+            return
+        try:
+            if backup:
+                self.library.backup(filename)
+            else:
+                self.library.export_json(filename)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, title, str(exc))
+            return
+        self.statusBar().showMessage(f"Library {'backup' if backup else 'export'} saved · {filename}")
 
     def setup_sidebar(self, shell):
         sidebar = QFrame()
@@ -339,6 +755,15 @@ class MainWindow(QMainWindow):
         layout.addSpacing(12)
         layout.addWidget(rule())
         layout.addWidget(caption("THE GAME MASTER'S TOOLS", "eyebrow"))
+        layout.addWidget(action("Campaigns & Sessions", self.open_campaigns))
+        layout.addWidget(action("World Desk  /  Quests & Handouts", self.open_world))
+        layout.addWidget(action("Maps  /  Grid, Tokens & Player View", self.open_maps))
+        layout.addWidget(action("Campaign Time & Travel", self.open_campaign_time))
+        layout.addWidget(action("Treasure & XP Ledger", self.open_resources))
+        layout.addWidget(action("Handout Gallery", self.open_handouts))
+        layout.addWidget(action("Review Scribe Proposals", self.open_reviewed_drafts))
+        layout.addWidget(action("Search D&D 3.5 Rules", self.open_rules))
+        layout.addWidget(action("Add Campaign Party to Scene", self.add_party_to_scene))
         dice_button = action("Roll Dice  /  Dice Eliminator", self.open_dice, "primaryButton")
         dice_button.setAccessibleName("Open the Dice Eliminator")
         layout.addWidget(dice_button)
@@ -347,9 +772,12 @@ class MainWindow(QMainWindow):
         names_button.setAccessibleName("Open standalone RPG Name Genie name generator")
         layout.addWidget(names_button)
         layout.addWidget(caption("Ctrl+G opens the Name Genie", "muted"))
-        narrator = action("The Scribe  /  DM Narration", self.open_narrator)
-        narrator.setAccessibleName("Open the local AI Dungeon Master narration tool")
+        narrator = action("The Scribe  /  DM Assistant", self.open_narrator)
+        narrator.setAccessibleName("Open local AI campaign planning, narration and Dungeon Master advice")
         layout.addWidget(narrator)
+        encounters = action("Roll a Random Encounter", self.open_encounter_generator)
+        encounters.setAccessibleName("Generate and review a random encounter and scene")
+        layout.addWidget(encounters)
         combat = action("Battle Trakker  /  Combat Manager", self.open_battle_trakker)
         combat.setAccessibleName("Open the D&D 3.5 Battle Trakker encounter manager")
         layout.addWidget(combat)
@@ -472,6 +900,8 @@ class MainWindow(QMainWindow):
                                          self.load_selection_to_battle)
         combat_actions.addWidget(self.send_battle_button)
         pane.addLayout(combat_actions)
+        self.battle_advice_button = action("Discuss Current Battle with Scribe", self.discuss_battle)
+        pane.addWidget(self.battle_advice_button)
         scene_actions = QHBoxLayout()
         self.edit_scene_button = action("Edit Scene", self.edit_scene)
         scene_actions.addWidget(self.edit_scene_button)
@@ -540,6 +970,13 @@ class MainWindow(QMainWindow):
         details.addWidget(self.notes_preview, 1)
         self.edit_button = action("Edit Record", self.edit, "primaryButton")
         details.addWidget(self.edit_button)
+        self.level_up_button = action("Level Up…", self.level_up)
+        self.level_up_button.setAccessibleName("Roll hit points and choose character level-up options")
+        details.addWidget(self.level_up_button)
+        self.spell_progression_button = action("Spells & Spell Slots…", self.open_spell_progression)
+        details.addWidget(self.spell_progression_button)
+        self.multiclass_button = action("Multiclass Advancement…", self.open_multiclass)
+        details.addWidget(self.multiclass_button)
         controls = QHBoxLayout()
         self.duplicate_button = action("Duplicate", self.duplicate)
         controls.addWidget(self.duplicate_button)
@@ -645,6 +1082,14 @@ class MainWindow(QMainWindow):
         record = selection[0] if len(selection) == 1 else None
         for control in (self.edit_button, self.duplicate_button, self.archive_button):
             control.setEnabled(record is not None)
+        self.level_up_button.setEnabled(
+            record is not None and record.kind in ("pc", "npc")
+            and not record.archived and 1 <= record.level < 20)
+        self.spell_progression_button.setEnabled(
+            record is not None and record.kind in ("pc", "npc") and not record.archived)
+        self.multiclass_button.setEnabled(
+            record is not None and record.kind in ("pc", "npc") and not record.archived
+            and 1 <= record.level < 20)
         self.add_scene_button.setEnabled(bool(selection))
         self.load_selected_button.setEnabled(bool(selection))
         self.send_battle_button.setEnabled(bool(selection))
@@ -680,8 +1125,16 @@ class MainWindow(QMainWindow):
             sheet = json.loads(record.sheet_json) if record.sheet_json else {}
         except (ValueError, TypeError):
             sheet = {}
+        if not isinstance(sheet, dict):
+            sheet = {}
         if record.kind == "monster" and sheet.get("monster_type"):
             computed = sheet.get("computed", {})
+            if not isinstance(computed, dict):
+                computed = {}
+            saves = {}
+            for save in ("fort", "ref", "will"):
+                value = computed.get(save, 0)
+                saves[save] = f"{value:+d}" if type(value) is int else "—"
             self.detail.setText(
                 f"Species: {record.race_type or '—'}\n"
                 f"Type: {sheet.get('monster_type', '')}"
@@ -690,9 +1143,9 @@ class MainWindow(QMainWindow):
                 f"   ·   CR: {progression}\n"
                 f"AC {record.armor_class}   ·   HP {record.max_hit_points}"
                 f"   ·   BAB +{computed.get('bab', 0)}\n"
-                f"Fort {computed.get('fort', 0):+d}  /  "
-                f"Ref {computed.get('ref', 0):+d}  /  "
-                f"Will {computed.get('will', 0):+d}\n"
+                f"Fort {saves['fort']}  /  "
+                f"Ref {saves['ref']}  /  "
+                f"Will {saves['will']}\n"
                 "Special traits and CR require DM review."
             )
         else:
@@ -702,7 +1155,9 @@ class MainWindow(QMainWindow):
                 f"{progress_label}: {progression}\n"
                 f"Armor Class: {record.armor_class}    ·    Hit Points: {record.max_hit_points}"
             )
-        no_score = set(sheet.get("null_abilities", []))
+        null_abilities = sheet.get("null_abilities", [])
+        no_score = ({value for value in null_abilities if isinstance(value, str)}
+                    if isinstance(null_abilities, list) else set())
         for attribute, score in self.stat_values.items():
             score.setText("—" if attribute in no_score else
                           str(getattr(record, attribute)))
@@ -719,16 +1174,43 @@ class MainWindow(QMainWindow):
             self.notes_preview.setPlainText(text)
         else:
             self.notes_preview.setPlainText(record.notes)
+        progression = sheet.get("progression", {})
+        if isinstance(progression, dict) and type(progression.get("base_attack_bonus")) is int:
+            lines = [f"LEVEL PROGRESSION · Level {record.level}",
+                     f"Base attack bonus: +{progression['base_attack_bonus']}"]
+            base_saves = progression.get("base_saves", {})
+            if isinstance(base_saves, dict):
+                lines.append("Base saves: " + " / ".join(
+                    f"{name.title()} {base_saves[key]:+d}" for key, name in
+                    (("fort", "Fort"), ("ref", "Ref"), ("will", "Will"))
+                    if type(base_saves.get(key)) is int))
+            self.detail.setText(self.detail.text() + "\n" + "\n".join(lines))
+        history = sheet.get("advancement_history", [])
+        if isinstance(history, list) and history:
+            entries = ["LEVEL HISTORY"]
+            for event in history:
+                if not isinstance(event, dict):
+                    continue
+                entries.append(f"Level {event.get('from_level', '?')} → {event.get('to_level', '?')}: "
+                               f"{event.get('hp_roll_detail') or event.get('hp_roll', '?')}; "
+                               f"HP gained {event.get('hp_gain', '?')}, "
+                               f"retroactive CON HP {event.get('retroactive_constitution_hp', 0)}.")
+                for key in ("ability_increase", "skill_increases", "feats", "class_choices", "class_notes", "spell_notes"):
+                    if event.get(key):
+                        entries.append(f"{key.replace('_', ' ').title()}: {event[key]}")
+            self.notes_preview.appendPlainText("\n" + "\n".join(entries))
         self.archive_button.setText("Restore" if record.archived else "Archive")
 
-    def persist(self, record):
+    def persist(self, record, *, baseline=None):
         try:
-            saved = self.library.save(record)
+            saved = (self.library.save(record) if baseline is None else
+                     self.library.save_if_unchanged(record, baseline))
         except Exception as error:
             QMessageBox.critical(self, "Save failed", str(error))
-            return
+            return False
         self.refresh(select_id=saved.id)
         self.statusBar().showMessage(f"Saved {saved.name}  ·  {self.library.path}")
+        return True
 
     def open_names(self):
         """Standalone Name Genie, accessible even when no records exist."""
@@ -739,7 +1221,7 @@ class MainWindow(QMainWindow):
         if self._scene_error:
             raise ValueError(
                 "Saved scene could not be read. Please back up or repair "
-                "current_scene.json before changing it. " + self._scene_error
+                "the scene for this workspace before changing it. " + self._scene_error
             )
 
     def add_selection_to_scene(self):
@@ -755,7 +1237,7 @@ class MainWindow(QMainWindow):
                 f"Added {len(records)} record(s) to scene. "
                 f"Scene roster: {len(self.scene['record_ids'])}."
             )
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Unable to update scene", str(exc))
 
     def edit_scene(self):
@@ -768,7 +1250,7 @@ class MainWindow(QMainWindow):
         if editor.exec() == QDialog.DialogCode.Accepted:
             try:
                 self.scene_store.save(editor.result_scene)
-            except (ValueError, OSError) as exc:
+            except (ValueError, OSError, sqlite3.Error) as exc:
                 QMessageBox.warning(self, "Scene not saved", str(exc))
                 return
             self.scene = editor.result_scene
@@ -776,6 +1258,10 @@ class MainWindow(QMainWindow):
 
     def _scribe_scene_context(self, source):
         self._check_scene()
+        if source == "scene" and self.workspace.session_id:
+            from .campaign_context import build_campaign_context
+            return build_campaign_context(self.campaigns, self.library,
+                                          self.workspace.session_id, task="dm")
         if source == "selection":
             records = self.selected_records()
             if not records:
@@ -796,23 +1282,118 @@ class MainWindow(QMainWindow):
     def _show_scribe_context(self, source):
         try:
             context = self._scribe_scene_context(source)
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Cannot load full Scribe context", str(exc))
             return
+        self._open_scribe_with_context(context)
+
+    def _open_scribe_with_context(self, context, *, task=None):
         existing = getattr(self, "_narrator_dialog", None)
         if existing is not None:
             # Explicit Load means replace the context, not the generated
             # draft. The draft is always editable and remains intact.
             existing.context.setPlainText(context)
+            if task is not None:
+                existing.dm_task.setCurrentIndex(existing.dm_task.findData(task))
             existing.show()
             existing.raise_()
             existing.activateWindow()
             return
         writer = AIWritingDialog("dm", context, self)
+        if task is not None:
+            writer.dm_task.setCurrentIndex(writer.dm_task.findData(task))
         writer.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         writer.setWindowModality(Qt.WindowModality.NonModal)
         self._narrator_dialog = writer
         writer.show()
+
+    def discuss_battle(self):
+        import json
+        try:
+            store = self._battle_store()
+            battle = (self._battle_window.battle if self._battle_window is not None
+                      else store.load() if store is not None else None)
+            if battle is None or not battle.fighters:
+                raise ValueError("Add combatants to Battle Trakker before asking about the current battle.")
+            context = ("CURRENT D&D 3.5 BATTLE — DM CONTEXT\n"
+                       "These are saved encounter instances, including current HP, initiative, "
+                       "conditions, effects, and event history. Do not invent dice results or "
+                       "change saved state.\n" + json.dumps(battle.snapshot(), ensure_ascii=False))
+            if len(context) > 6000:
+                raise ValueError("The complete battle context exceeds the Scribe's 6,000-character limit. "
+                                 "Open the Scribe and enter the specific situation to discuss; "
+                                 "no battle details were silently omitted.")
+            self._open_scribe_with_context(context, task="dm_advice")
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Cannot discuss battle", str(exc))
+
+    def open_encounter_generator(self):
+        from .encounter_ui import EncounterGeneratorDialog
+        try:
+            dialog = self._encounter_generator_dialog
+            if dialog is None:
+                dialog = EncounterGeneratorDialog(self.library.list(), self)
+                self._encounter_generator_dialog = dialog
+            else:
+                # Keep the reviewed dice and edits available for the next
+                # handoff. New rolls use the latest library templates.
+                dialog.records = tuple(self.library.list())
+            if dialog.exec() != QDialog.DialogCode.Accepted or dialog.result_draft is None:
+                return
+            draft = dialog.result_draft
+            if dialog.result_action == "scene":
+                self._check_scene()
+                scene = draft.to_scene(self.scene)
+                self.scene_store.save(scene)
+                self.scene = scene
+                self.statusBar().showMessage("Generated encounter saved as the current scene.")
+            elif dialog.result_action == "scribe":
+                self._open_scribe_with_context(draft.scribe_context(), task="session_plan")
+            elif dialog.result_action == "battle":
+                from copy import deepcopy
+                tracker = self.open_battle_trakker()
+                if tracker is None:
+                    return
+                candidate = deepcopy(tracker.battle)
+                if not candidate.fighters:
+                    candidate.title = draft.title
+                candidate.scene = "\n\n".join(part for part in (candidate.scene, draft.dm_brief()) if part)
+                if len(candidate.scene) > 12000:
+                    raise ValueError("The combined encounter notes exceed Battle Trakker's size limit.")
+                for fighter in draft.fighters:
+                    candidate.add(fighter)
+                tracker.store.save(candidate)
+                tracker.battle = candidate
+                tracker.encounter_title.setText(candidate.title)
+                tracker.render()
+                self.statusBar().showMessage(f"Added {len(draft.fighters)} independent combatants to Battle Trakker.")
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Encounter not applied", str(exc))
+
+    def level_up(self):
+        from .advancement import needs_progression_profile
+        from .advancement_ui import LevelUpDialog, ProgressionProfileDialog
+        record = self.selected()
+        if record is None:
+            return
+        try:
+            import json
+            sheet = json.loads(record.sheet_json or "{}")
+            if "class_levels" in sheet or "multiclass_baseline" in sheet:
+                self.open_multiclass()
+                return
+            profile = None
+            if needs_progression_profile(record):
+                profile_dialog = ProgressionProfileDialog(record, self)
+                if profile_dialog.exec() != QDialog.DialogCode.Accepted:
+                    return
+                profile = profile_dialog.result_profile
+            dialog = LevelUpDialog(record, self, profile=profile)
+            while dialog.exec() == QDialog.DialogCode.Accepted and dialog.result_creature is not None:
+                if self.persist(dialog.result_creature, baseline=record):
+                    break
+        except (ValueError, TypeError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Unable to level up", str(exc))
 
     def load_selection_to_scribe(self):
         self._show_scribe_context("selection")
@@ -834,6 +1415,12 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         # QApplication.setQuitOnLastWindowClosed(False) is intentionally used:
         # only a deliberate close of the real main window ends the app.
+        try:
+            self._flush_workspace()
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Workspace not saved", str(exc))
+            event.ignore()
+            return
         super().closeEvent(event)
         if event.isAccepted():
             app = QApplication.instance()
@@ -851,8 +1438,8 @@ class MainWindow(QMainWindow):
             return self._battle_window
         try:
             self._battle_window = BattleTrakkerDialog(
-                self.library, self, scene=self.scene)
-        except (ValueError, OSError) as exc:
+                self.library, self, scene=self.scene, store=self._battle_store(create=True))
+        except (ValueError, OSError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Battle Trakker save needs review", str(exc))
             return None
         self._battle_window.show()
@@ -879,29 +1466,38 @@ class MainWindow(QMainWindow):
             dialog = MonsterCreatorDialog(self)
         else:
             raise ValueError("Unknown record type.")
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.persist(dialog.result_creature)
+        while dialog.exec() == QDialog.DialogCode.Accepted:
+            if self.persist(dialog.result_creature):
+                break
 
     def edit(self, *args):
         record = self.selected()
         if record is None:
             return
-        if (record.kind in ("pc", "npc") and record.sheet_json
-                and record.level == 1):
-            dialog = CharacterCreatorDialog(self, creature=record)
-        elif record.kind == "monster" and record.sheet_json:
-            import json
-            try:
+        try:
+            if (record.kind in ("pc", "npc") and record.sheet_json
+                    and record.level == 1):
+                dialog = CharacterCreatorDialog(self, creature=record)
+                if dialog._original_sheet_error:
+                    raise ValueError(dialog._original_sheet_error)
+            elif record.kind == "monster" and record.sheet_json:
+                import json
                 structure = json.loads(record.sheet_json)
-            except ValueError:
-                structure = {}
-            dialog = (MonsterCreatorDialog(self, creature=record)
-                      if structure.get("monster_type") else
-                      CreatureEditor(record, self))
-        else:
-            dialog = CreatureEditor(record, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.persist(dialog.result_creature)
+                dialog = (MonsterCreatorDialog(self, creature=record)
+                          if structure.get("monster_type") else
+                          CreatureEditor(record, self))
+            else:
+                dialog = CreatureEditor(record, self)
+        except (ValueError, TypeError, AttributeError, KeyError, OverflowError) as exc:
+            QMessageBox.warning(
+                self, "Unable to edit record",
+                "The saved character sheet has an unrecognized structure and "
+                "could not be opened. The saved record has not been changed.\n\n"
+                + str(exc))
+            return
+        while dialog.exec() == QDialog.DialogCode.Accepted:
+            if self.persist(dialog.result_creature, baseline=record):
+                break
 
     def duplicate(self, *args):
         record = self.selected()

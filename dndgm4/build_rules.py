@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 
 SIMPLE_FEATS = frozenset({
-    "Alertness","Blind-Fight","Combat Casting","Dodge","Endurance",
+    "Alertness","Blind-Fight","Combat Casting","Endurance",
     "Great Fortitude","Improved Initiative","Iron Will","Lightning Reflexes",
     "Point Blank Shot","Toughness","Track","Skill Focus","Run","Negotiator",
     "Stealthy","Acrobatic","Athletic","Deceitful","Deft Hands","Diligent",
@@ -17,6 +17,8 @@ SIMPLE_FEATS = frozenset({
 })
 # prerequisite ability, score, another feat, minimum BAB
 PREREQUISITES = {
+    # https://www.d20srd.org/srd/feats.htm#dodge
+    "Dodge": ("dexterity",13,None,0),
     "Power Attack": ("strength",13,None,0),
     "Cleave": ("strength",13,"Power Attack",0),
     "Great Cleave": ("strength",13,"Cleave",4),
@@ -38,14 +40,24 @@ FIGHTER_BONUS = frozenset({
     "Weapon Finesse","Weapon Focus",
 })
 UNSUPPORTED = ("Specialization", "Metamagic", "Item Creation")
+_AUTOMATIC_CLASS_FEATS = {
+    "Wizard": {1: ("Scribe Scroll",)},
+    # https://www.d20srd.org/srd/classes/ranger.htm
+    "Ranger": {1: ("Track",), 3: ("Endurance",)},
+}
+
+
+def automatic_class_feats(class_name: str, level: int = 1) -> list[str]:
+    """Encoded class-granted feats owned by this class level, outside slots."""
+    return [feat for required, feats in _AUTOMATIC_CLASS_FEATS.get(class_name, {}).items()
+            if level >= required for feat in feats]
 
 
 def first_level_feat_slots(class_name: str, race: str) -> dict:
     return {
         "general": 1 + (1 if race=="Human" else 0),
         "fighter_bonus": 1 if class_name=="Fighter" else 0,
-        "automatic": (["Scribe Scroll"] if class_name=="Wizard" else
-                      ["Track"] if class_name=="Ranger" else []),
+        "automatic": automatic_class_feats(class_name),
     }
 
 
@@ -66,14 +78,16 @@ def feat_review(feats: list[str], scores: dict[str,int], *,
     if len(selected)!=len(set(selected)):
         raise ValueError("Duplicate feats require a feat-specific repeatability rule.")
     info=first_level_feat_slots(class_name,race)
+    # Saved first-level lists may include their automatic class grants alongside
+    # chosen feats. Those grants are neither selections nor unverified choices.
+    choices=[feat for feat in selected if feat not in info["automatic"]]
     capacity=info["general"]+info["fighter_bonus"]
-    general_count=len(selected)
-    if len(selected)>capacity:
-        msg=f"Selected {len(selected)} feats but {race} {class_name} has {capacity} first-level selections."
+    if len(choices)>capacity:
+        msg=f"Selected {len(choices)} feats but {race} {class_name} has {capacity} first-level selections."
         if strict:raise ValueError(msg)
         return [msg]
     warnings=[]
-    for feat in selected:
+    for feat in choices:
         rule=PREREQUISITES.get(feat)
         if rule:
             attr,minimum,needed,min_bab=rule
@@ -91,8 +105,8 @@ def feat_review(feats: list[str], scores: dict[str,int], *,
                 warnings.append(msg)
         elif feat not in SIMPLE_FEATS:
             warnings.append(f"Unverified feat or prerequisites: {feat} (DM review).")
-    if class_name=="Fighter" and len(selected)>info["general"]:
-        if not any(feat in FIGHTER_BONUS for feat in selected):
+    if class_name=="Fighter" and len(choices)>info["general"]:
+        if not any(feat in FIGHTER_BONUS for feat in choices):
             warnings.append("Fighter bonus feat must be a qualifying fighter feat.")
     return warnings
 

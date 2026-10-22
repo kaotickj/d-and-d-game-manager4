@@ -8,9 +8,11 @@ from __future__ import annotations
 from functools import lru_cache
 from importlib.resources import files
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import QLabel
+
+from .theme import COLORS
 
 _ASSET_NAMES = frozenset({
     "app_banner.jpg",
@@ -61,6 +63,42 @@ class CoverArtLabel(QLabel):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.update_picture()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        # Draw interface ornament over the image instead of modifying the
+        # packaged artwork or cached pixmaps. It stays sharp at any display DPI.
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(COLORS["border"]), 1.0))
+        painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 10, 10)
+
+        inset, arm = 5.5, 27.0
+        for right, bottom in ((False, False), (True, False), (False, True), (True, True)):
+            x = self.width() - inset if right else inset
+            y = self.height() - inset if bottom else inset
+            dx, dy = (-1 if right else 1), (-1 if bottom else 1)
+            corner = QPainterPath(QPointF(x, y + dy * arm))
+            corner.lineTo(x, y + dy * 9)
+            corner.lineTo(x + dx * 9, y)
+            corner.lineTo(x + dx * arm, y)
+            painter.setPen(QPen(QColor(COLORS["window"]), 3.0))
+            painter.drawPath(corner)
+            painter.setPen(QPen(QColor(COLORS["ember"]), 1.0))
+            painter.drawPath(corner)
+
+        # Small lozenges echo the banner's original compass and d20 geometry.
+        painter.setPen(QPen(QColor(COLORS["ember"]), 0.8))
+        painter.setBrush(QColor(COLORS["raised"]))
+        center = self.width() / 2
+        for y in (5.5, self.height() - 5.5):
+            diamond = QPainterPath(QPointF(center, y - 3))
+            diamond.lineTo(center + 6, y)
+            diamond.lineTo(center, y + 3)
+            diamond.lineTo(center - 6, y)
+            diamond.closeSubpath()
+            painter.drawPath(diamond)
 
     def update_picture(self):
         if self.source.isNull():
