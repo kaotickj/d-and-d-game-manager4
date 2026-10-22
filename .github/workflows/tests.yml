@@ -24,5 +24,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+      - name: Install Qt graphics runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libegl1 libopengl0
       - run: python -m pip install -e .
       - run: python -m unittest discover -s tests -v
