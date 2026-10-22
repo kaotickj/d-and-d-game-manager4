@@ -1,7 +1,7 @@
 # Installing Windows test builds
 
-The **Windows installer** GitHub Actions workflow builds on every push to `main`,
-on manual dispatch, and on tags starting with `v`.
+The **Windows installer** GitHub Actions workflow builds on pull requests against
+`main`, every push to `main`, manual dispatch, and tags starting with `v`.
 
 ## Testing a new build
 
@@ -24,6 +24,12 @@ directory. Upgrading or uninstalling the application does not remove this file.
 
 **Still back up your library** before testing new development builds.
 Later database schema changes may not be backward-compatible.
+
+Campaign builds use schema v3. SQLite backups now include campaign parties,
+session journals/scenes, and named encounter combat state. The previous standalone
+scene and battle JSON files remain outside SQLite unless explicitly copied into
+a campaign session. Preserve those files separately when backing up standalone
+play. Older app versions refuse a database schema newer than they support.
 
 ## Portable ZIP and releases
 

@@ -246,17 +246,27 @@ class MainWindow(QMainWindow):
         library_menu.addAction("Back Up Library…", self.backup_library)
         library_menu.addAction("Export Library as JSON…", self.export_library)
         library_menu.addAction("Import Library from JSON…", self.import_library)
-        self.scene_store = SceneStore(library.path)
+        from .campaigns import ActiveWorkspace, CampaignRepository, SessionSceneStore
+        self.campaigns = CampaignRepository(library.path)
+        self._workspace_error = ""
+        try:
+            self.workspace = self.campaigns.get_workspace()
+        except (ValueError, sqlite3.Error) as exc:
+            self.workspace = ActiveWorkspace()
+            self._workspace_error = str(exc)
+        self.scene_store = (SessionSceneStore(self.campaigns, self.workspace.session_id)
+                            if self.workspace.session_id else SceneStore(library.path))
         self._scene_error = ""
         try:
             self.scene = self.scene_store.load()
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, sqlite3.Error) as exc:
             # Leave a damaged scene file intact. Do not crash the entire app.
             self.scene = blank_scene()
             self._scene_error = str(exc)
         self.active_kind = None
         self._battle_window = None
         self._encounter_generator_dialog = None
+        self._encounter_generator_dialogs = {}
         self.setWindowTitle(f"Dungeons & Dragons Game Manager 4 · {__version__} · The Compendium")
         self.setWindowIcon(window_icon())
         # 10% larger default desktop window; do not scale fonts, banners,
@@ -275,6 +285,14 @@ class MainWindow(QMainWindow):
         body = QVBoxLayout(workspace)
         body.setContentsMargins(27, 25, 27, 20)
         body.setSpacing(15)
+        workspace_line = QHBoxLayout()
+        self.workspace_label = caption("", "muted", wrap=True)
+        self.workspace_label.setAccessibleName("Active campaign, session, and encounter")
+        workspace_line.addWidget(self.workspace_label, 1)
+        self.campaigns_button = action("Campaigns & Sessions…", self.open_campaigns)
+        workspace_line.addWidget(self.campaigns_button)
+        body.addLayout(workspace_line)
+        self._update_workspace_label()
         # Scroll the original dashboard when height is limited; this does not
         # alter its header/banner presentation or default spacing.
         self.workspace_scroll = QScrollArea()
@@ -296,6 +314,146 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=self.open_narrator)
         QShortcut(QKeySequence("Ctrl+B"), self, activated=self.open_battle_trakker)
         self.refresh()
+
+    def _update_workspace_label(self):
+        if not self.workspace.session_id:
+            text = "Standalone workspace · local scene and encounter"
+        else:
+            campaign = self.campaigns.get_campaign(self.workspace.campaign_id)
+            session = self.campaigns.get_session(self.workspace.session_id)
+            encounter = (self.campaigns.get_encounter(self.workspace.encounter_id)
+                         if self.workspace.encounter_id else None)
+            text = f"{campaign.name if campaign else 'Campaign'} / {session.title if session else 'Session'}"
+            if encounter is not None:
+                text += f" / {encounter.title}"
+        if self._workspace_error:
+            text += " · saved workspace needs review"
+        self.workspace_label.setText(text)
+
+    def _flush_workspace(self):
+        if self._battle_window is not None:
+            self._battle_window._save()
+        # Preserve unreadable scenes in place; switching away must never
+        # replace a damaged saved scene with the blank error fallback.
+        if not self._scene_error:
+            self.scene_store.save(self.scene)
+
+    def switch_workspace(self, workspace):
+        """Validate the destination and save the current state before switching."""
+        from .campaigns import ActiveWorkspace, CampaignBattleStore, SessionSceneStore
+        from .battle_advanced import AdvancedBattleStore
+        if not isinstance(workspace, ActiveWorkspace):
+            raise ValueError("Choose a saved campaign session or the standalone workspace.")
+        self._flush_workspace()
+        if workspace.session_id:
+            scene_store = SessionSceneStore(self.campaigns, workspace.session_id)
+            scene = scene_store.load()
+            if workspace.encounter_id:
+                CampaignBattleStore(self.campaigns, workspace.encounter_id).load()
+        else:
+            if workspace.campaign_id or workspace.encounter_id:
+                raise ValueError("A campaign workspace requires a session.")
+            scene_store = SceneStore(self.library.path)
+            scene = scene_store.load()
+            # Leave a damaged standalone battle untouched and stay in the
+            # current session until it is repaired or explicitly imported.
+            AdvancedBattleStore(self.library.path).load()
+        if workspace.session_id:
+            activated = self.campaigns.activate(workspace.campaign_id, workspace.session_id,
+                                                workspace.encounter_id)
+        else:
+            self.campaigns.clear_workspace()
+            activated = ActiveWorkspace()
+        self._encounter_generator_dialogs[self.workspace.session_id] = self._encounter_generator_dialog
+        if self._battle_window is not None:
+            if hasattr(self._battle_window, "advanced_desk"):
+                self._battle_window.advanced_desk.hide()
+            self._battle_window.hide()
+            self._battle_window.deleteLater()
+            self._battle_window = None
+        writer = getattr(self, "_narrator_dialog", None)
+        if writer is not None:
+            writer.hide()
+        self.workspace = activated
+        self.scene_store, self.scene = scene_store, scene
+        self._scene_error = self._workspace_error = ""
+        self._encounter_generator_dialog = self._encounter_generator_dialogs.get(activated.session_id)
+        self._update_workspace_label()
+        self.statusBar().showMessage("Workspace opened · " + self.workspace_label.text())
+
+    def open_campaigns(self):
+        from .campaigns import ActiveWorkspace
+        from .campaign_ui import CampaignManagerDialog
+        try:
+            self._flush_workspace()
+            dialog = CampaignManagerDialog(self.campaigns, self.library, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                if dialog.result_action in ("open", "standalone"):
+                    target = (dialog.result_workspace if dialog.result_action == "open"
+                              else ActiveWorkspace())
+                    self.switch_workspace(target)
+                elif dialog.result_action == "legacy_import":
+                    from .battle_advanced import AdvancedBattleStore
+                    local_scene = SceneStore(self.library.path).load()
+                    local_battle = AdvancedBattleStore(self.library.path).load()
+                    session = self.campaigns.import_legacy_session(
+                        dialog.result_workspace.campaign_id, local_scene, local_battle)
+                    encounter = self.campaigns.list_encounters(session.id)[0]
+                    self.switch_workspace(ActiveWorkspace(session.campaign_id, session.id, encounter.id))
+                elif dialog.result_action == "scribe":
+                    self.open_campaign_scribe(dialog.result_session_id, dialog.result_task,
+                                              campaign_id=dialog.result_workspace.campaign_id)
+            current_campaign = (self.campaigns.get_campaign(self.workspace.campaign_id)
+                                if self.workspace.campaign_id else None)
+            if current_campaign is not None and current_campaign.archived:
+                self.switch_workspace(ActiveWorkspace())
+            self._update_workspace_label()
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Campaign workspace not opened", str(exc))
+
+    def open_campaign_scribe(self, session_id, task="session_plan", *, campaign_id=""):
+        from .campaign_context import build_campaign_context, build_campaign_planning_context
+        if task == "campaign_plan" and not session_id:
+            context = build_campaign_planning_context(self.campaigns, self.library, campaign_id)
+        else:
+            context = build_campaign_context(self.campaigns, self.library, session_id, task=task)
+        self._open_scribe_with_context(context, task=task)
+
+    def add_party_to_scene(self):
+        try:
+            self._check_scene()
+            if not self.workspace.campaign_id:
+                raise ValueError("Open a campaign session before adding its party.")
+            party = self.campaigns.party(self.workspace.campaign_id)
+            if not party:
+                raise ValueError("Choose and save a party in Campaigns & Sessions first.")
+            if any(record.archived for record in party):
+                raise ValueError("The party includes archived records. Restore them or edit the party first.")
+            scene = add_records(self.scene, [record.id for record in party])
+            self.scene_store.save(scene)
+            self.scene = scene
+            self.statusBar().showMessage(f"Added {len(party)} party members to this session's scene.")
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Party not added", str(exc))
+
+    def _battle_store(self, *, create=False):
+        from .campaigns import CampaignBattleStore
+        from .battle_advanced import AdvancedBattleStore
+        if not self.workspace.session_id:
+            return AdvancedBattleStore(self.library.path)
+        if not self.workspace.encounter_id:
+            if not create:
+                return None
+            encounters = self.campaigns.list_encounters(self.workspace.session_id)
+            encounter = encounters[0] if encounters else self.campaigns.create_encounter(
+                self.workspace.session_id, "Encounter 1")
+            store = CampaignBattleStore(self.campaigns, encounter.id)
+            store.load()
+            self.workspace = self.campaigns.activate(self.workspace.campaign_id,
+                                                      self.workspace.session_id, encounter.id)
+            self._update_workspace_label()
+            return store
+        return CampaignBattleStore(self.campaigns, self.workspace.encounter_id)
 
     def backup_library(self):
         self._save_library_file(backup=True)
@@ -391,6 +549,8 @@ class MainWindow(QMainWindow):
         layout.addSpacing(12)
         layout.addWidget(rule())
         layout.addWidget(caption("THE GAME MASTER'S TOOLS", "eyebrow"))
+        layout.addWidget(action("Campaigns & Sessions", self.open_campaigns))
+        layout.addWidget(action("Add Campaign Party to Scene", self.add_party_to_scene))
         dice_button = action("Roll Dice  /  Dice Eliminator", self.open_dice, "primaryButton")
         dice_button.setAccessibleName("Open the Dice Eliminator")
         layout.addWidget(dice_button)
@@ -837,7 +997,7 @@ class MainWindow(QMainWindow):
         if self._scene_error:
             raise ValueError(
                 "Saved scene could not be read. Please back up or repair "
-                "current_scene.json before changing it. " + self._scene_error
+                "the scene for this workspace before changing it. " + self._scene_error
             )
 
     def add_selection_to_scene(self):
@@ -853,7 +1013,7 @@ class MainWindow(QMainWindow):
                 f"Added {len(records)} record(s) to scene. "
                 f"Scene roster: {len(self.scene['record_ids'])}."
             )
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Unable to update scene", str(exc))
 
     def edit_scene(self):
@@ -866,7 +1026,7 @@ class MainWindow(QMainWindow):
         if editor.exec() == QDialog.DialogCode.Accepted:
             try:
                 self.scene_store.save(editor.result_scene)
-            except (ValueError, OSError) as exc:
+            except (ValueError, OSError, sqlite3.Error) as exc:
                 QMessageBox.warning(self, "Scene not saved", str(exc))
                 return
             self.scene = editor.result_scene
@@ -874,6 +1034,10 @@ class MainWindow(QMainWindow):
 
     def _scribe_scene_context(self, source):
         self._check_scene()
+        if source == "scene" and self.workspace.session_id:
+            from .campaign_context import build_campaign_context
+            return build_campaign_context(self.campaigns, self.library,
+                                          self.workspace.session_id, task="dm")
         if source == "selection":
             records = self.selected_records()
             if not records:
@@ -894,7 +1058,7 @@ class MainWindow(QMainWindow):
     def _show_scribe_context(self, source):
         try:
             context = self._scribe_scene_context(source)
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Cannot load full Scribe context", str(exc))
             return
         self._open_scribe_with_context(context)
@@ -921,11 +1085,11 @@ class MainWindow(QMainWindow):
 
     def discuss_battle(self):
         import json
-        from .battle_advanced import AdvancedBattleStore
         try:
+            store = self._battle_store()
             battle = (self._battle_window.battle if self._battle_window is not None
-                      else AdvancedBattleStore(self.library.path).load())
-            if not battle.fighters:
+                      else store.load() if store is not None else None)
+            if battle is None or not battle.fighters:
                 raise ValueError("Add combatants to Battle Trakker before asking about the current battle.")
             context = ("CURRENT D&D 3.5 BATTLE — DM CONTEXT\n"
                        "These are saved encounter instances, including current HP, initiative, "
@@ -936,7 +1100,7 @@ class MainWindow(QMainWindow):
                                  "Open the Scribe and enter the specific situation to discuss; "
                                  "no battle details were silently omitted.")
             self._open_scribe_with_context(context, task="dm_advice")
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Cannot discuss battle", str(exc))
 
     def open_encounter_generator(self):
@@ -1025,6 +1189,12 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         # QApplication.setQuitOnLastWindowClosed(False) is intentionally used:
         # only a deliberate close of the real main window ends the app.
+        try:
+            self._flush_workspace()
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Workspace not saved", str(exc))
+            event.ignore()
+            return
         super().closeEvent(event)
         if event.isAccepted():
             app = QApplication.instance()
@@ -1042,8 +1212,8 @@ class MainWindow(QMainWindow):
             return self._battle_window
         try:
             self._battle_window = BattleTrakkerDialog(
-                self.library, self, scene=self.scene)
-        except (ValueError, OSError) as exc:
+                self.library, self, scene=self.scene, store=self._battle_store(create=True))
+        except (ValueError, OSError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Battle Trakker save needs review", str(exc))
             return None
         self._battle_window.show()

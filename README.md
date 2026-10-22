@@ -53,8 +53,28 @@ encounter generation.
 
 The Scribe currently accepts 6,000 characters of context plus request. Oversized
 context is reported before generation, without silently truncating saved facts.
-Campaign/session storage and complete backup bundles covering scenes and combat
-are still planned; the current backup command covers the SQLite library.
+
+## Campaigns and sessions
+
+Open **Campaigns & Sessions…** to create a campaign, choose its party, keep
+session notes and reviewed recaps, and create named encounters. Select a session
+and encounter, then click **Open Selected Session / Encounter**. The active
+campaign/session/encounter is shown above the Compendium and restored on restart.
+Each session owns its scene; each encounter owns its HP, initiative, conditions,
+effects, and combat history. Switching saves the old workspace before opening
+the next one. **Add Campaign Party to Scene** explicitly marks the saved party
+as present; membership alone does not put anyone into a scene or combat.
+
+The manager can send campaign and session context to the Scribe, including prior
+completed recaps and the selected party/scene records. **Plan Campaign in Scribe**
+also works before the first session exists. Plans and scene descriptions are
+kept distinct from evidence about events that actually happened.
+
+Existing local saves remain available through **Standalone Workspace**.
+**Import Standalone Scene/Battle** copies them into a new campaign session and
+encounter without changing the originals. Journal saves commit campaign edits,
+party membership, and session notes together. See
+[campaign workflows and backup scope](docs/CAMPAIGNS.md).
 
 ## Installation (Python 3.11+)
 
@@ -80,10 +100,13 @@ Use **Library → Back Up Library…** to save a consistent SQLite snapshot whil
 the app is running. **Library → Export Library as JSON…** exports all permanent
 PC, NPC, and monster records, including archived records and character sheets.
 Both commands write complete files before replacing an existing destination and
-refuse to overwrite the active database. These files cover the Compendium;
-scene and encounter autosaves are separate and are not included. To restore a
-SQLite backup, close the app, preserve the current database, and copy the backup
-to the database location listed above.
+refuse to overwrite the active database. The **SQLite backup includes campaigns,
+parties, session journals and scenes, named encounter state, and the active
+workspace**. JSON export/import covers creature records only. Standalone
+`current_scene.json` and `battle_trakker.json` are separate and are not included
+in a SQLite backup; import them into a campaign to capture their copied state.
+To restore a SQLite backup, close the app, preserve the current database, and
+copy the backup to the database location listed above.
 
 **Library → Import Library from JSON…** opens a preview of a DnDGM4 JSON export.
 Records match by their saved IDs, including archived records; matching names

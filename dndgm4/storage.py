@@ -17,7 +17,7 @@ from .models import Creature, KINDS
 if TYPE_CHECKING:
     from .library_transfer import ImportSummary
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 WRITE_COLUMNS = (
     "name", "kind", "race_type", "character_class", "level",
     "challenge_rating", "armor_class", "max_hit_points",
@@ -207,6 +207,61 @@ class CreatureRepository:
             elif version == 1:
                 db.execute("ALTER TABLE creatures ADD COLUMN sheet_json TEXT NOT NULL DEFAULT ''")
                 db.execute("PRAGMA user_version = 2")
+            if version < 3:
+                # Add campaign state without rewriting creature rows or touching
+                # the older standalone scene and battle sidecar files.
+                if not db.in_transaction:
+                    db.execute("BEGIN IMMEDIATE")
+                statements = """
+                    CREATE TABLE campaigns (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        description TEXT NOT NULL DEFAULT '',
+                        notes TEXT NOT NULL DEFAULT '',
+                        archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE campaign_members (
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        creature_id TEXT NOT NULL REFERENCES creatures(id),
+                        PRIMARY KEY(campaign_id, creature_id)
+                    );
+                    CREATE TABLE sessions (
+                        id TEXT PRIMARY KEY,
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        title TEXT NOT NULL,
+                        session_date TEXT NOT NULL DEFAULT '',
+                        status TEXT NOT NULL DEFAULT 'planned'
+                            CHECK(status IN ('planned','in_progress','completed')),
+                        notes TEXT NOT NULL DEFAULT '',
+                        recap TEXT NOT NULL DEFAULT '',
+                        scene_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX idx_sessions_campaign ON sessions(campaign_id);
+                    CREATE TABLE encounters (
+                        id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL REFERENCES sessions(id),
+                        title TEXT NOT NULL,
+                        battle_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX idx_encounters_session ON encounters(session_id);
+                    CREATE TABLE workspace (
+                        id INTEGER PRIMARY KEY CHECK(id=1),
+                        campaign_id TEXT REFERENCES campaigns(id),
+                        session_id TEXT REFERENCES sessions(id),
+                        encounter_id TEXT REFERENCES encounters(id)
+                    );
+                    INSERT INTO workspace(id) VALUES(1);
+                    PRAGMA user_version = 3;
+                """
+                for statement in statements.split(";"):
+                    if statement.strip():
+                        db.execute(statement)
 
     @staticmethod
     def _from_row(row: sqlite3.Row) -> Creature:

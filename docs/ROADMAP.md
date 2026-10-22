@@ -33,9 +33,12 @@ as Copyright 2001–2025 Kaosium Interactive, designed and coded by Kaotick Jay.
 
 - Library protection: SQLite snapshots, complete JSON exports, and validated,
   transactional JSON import with a preview and skip/copy/replace policies are
-  implemented. Extend backup/restore to scene and encounter state next.
-- Campaign management: persistent campaigns, sessions, party membership, and
-  encounters linked to campaigns.
+  implemented. SQLite snapshots now include campaign/session scenes and named
+  encounter state. Add guided restore and a bundle for standalone sidecars next.
+- Campaign management: campaigns, parties, session journals/recaps, independent
+  session scenes, named encounters, and persistent workspace selection are
+  implemented. Next expand quest/faction/location tracking and reviewed AI
+  draft handoff into campaign journals.
 - Character advancement: guided single-class levels, editable default builds,
   numeric core/NPC progression, and reviewed supplemental-class profiles are
   implemented. Next add structured higher-level spell selection, wider feat and
@@ -45,6 +48,12 @@ as Copyright 2001–2025 Kaosium Interactive, designed and coded by Kaotick Jay.
 
 ## Current development additions
 
+- Persistent campaign/session manager, party roster, session status/date, notes
+  and reviewed recaps, and isolated saved encounters. Schema v3 adds tables
+  without rewriting creature templates or modifying standalone saves.
+- Explicit standalone-session import and active-workspace switching with save
+  failure protection. Journal edits commit atomically. Campaign/session Scribe
+  context includes prior completed recaps without treating plans as events.
 - Guided level-up with explicit HP dice, skill/feat/ability/class choices,
   editable defaults for each template, and preserved advancement history.
 - Scribe task modes for campaign planning, session preparation, scene narration,
