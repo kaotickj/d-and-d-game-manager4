@@ -722,3 +722,5 @@ This milestone extends Battle Trakker v0.8.0 (which remains available with Ctrl+
 **Limits:** This is not an exhaustive D&D 3.5 combat engine. Spell-specific effects, non-SRD sourcebooks, prestige-class spells, tactical movement and attacks of opportunity, nuanced feat/equipment stacking, precision damage, grappling/trip/disarm and other advanced rulings remain for the DM to review. The optional spell index importer needs a deliberate initial online operation; normal combat tracking needs no internet.
 
 The Windows installer and portable ZIP are built by GitHub Actions. For an up-to-date test build, open the most recent successful **Windows installer** run for the current pull request or `main` branch and download its `DnDGameManager4-Windows-*` artifact. Installer versions are read from `pyproject.toml`.
+
+The **Linux installer** workflow builds an amd64 Debian/Ubuntu `.deb` installer and portable archive, including the desktop launcher and artwork. Download its `DnDGameManager4-Linux-*` artifact from a successful run. See [Linux installation and upgrades](docs/LINUX_BUILDS.md) for checksums, dependencies, and campaign backup instructions.

@@ -1,0 +1,92 @@
+name: Linux installer
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install bounded HTTPS desktop dependencies
+        timeout-minutes: 7
+        run: |
+          sudo python3 - <<'PY'
+          from pathlib import Path
+          paths = [Path('/etc/apt/sources.list'), *Path('/etc/apt/sources.list.d').glob('*.list'), *Path('/etc/apt/sources.list.d').glob('*.sources')]
+          for path in paths:
+              if not path.is_file():
+                  continue
+              text = path.read_text()
+              for host in ('azure.archive.ubuntu.com', 'archive.ubuntu.com', 'security.ubuntu.com'):
+                  target = 'archive.ubuntu.com' if host == 'azure.archive.ubuntu.com' else host
+                  text = text.replace('http://' + host + '/ubuntu', 'https://' + target + '/ubuntu')
+              path.write_text(text)
+          PY
+          timeout 180s sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          timeout 180s sudo env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install --yes --no-install-recommends libegl1 libopengl0 libgl1 libglib2.0-0 libfontconfig1 libfreetype6 libx11-6 libx11-xcb1 libxext6 libxrender1 libxi6 libxfixes3 libxkbcommon0 libxkbcommon-x11-0 libxcb1 libxcb-cursor0 libxcb-glx0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-render0 libxcb-shape0 libxcb-shm0 libxcb-sync1 libxcb-util1 libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 libdbus-1-3 fonts-dejavu-core xvfb xauth desktop-file-utils dpkg-dev
+
+      - name: Install Python build tools
+        timeout-minutes: 5
+        run: python -m pip install --disable-pip-version-check --retries 2 --timeout 30 -e . pyinstaller
+
+      - name: Check Linux packaging and recovery contracts
+        timeout-minutes: 3
+        run: |
+          bash -n build/linux_acceptance.sh
+          python -m unittest tests.test_linux_package tests.test_packaged_smoke tests.test_windows_upgrade_fixture -v
+
+      - name: Bundle standalone desktop application
+        timeout-minutes: 5
+        run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name DnDGameManager4 --collect-submodules dndgm4 --collect-data dndgm4 --add-data "dndgm4/assets:dndgm4/assets" build/windows_launcher.py
+
+      - name: Build Debian installer and portable archive
+        timeout-minutes: 3
+        run: |
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          python build/linux_package.py --bundle dist/DnDGameManager4 --output dist --version "$version" --portable
+
+      - name: Check native executable, installation, upgrade and removal
+        timeout-minutes: 7
+        run: |
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          bash build/linux_acceptance.sh --package "dist/dndgm4_${version}_amd64.deb" --bundle-exe dist/DnDGameManager4/DnDGameManager4 --report-root dist/linux-acceptance
+
+      - name: Upload Linux installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: DnDGameManager4-Linux-${{ github.run_number }}
+          path: |
+            dist/*.deb
+            dist/*-linux-amd64.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Linux acceptance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DnDGameManager4-Linux-Acceptance-${{ github.run_number }}
+          path: dist/linux-acceptance/
+          if-no-files-found: ignore
+          retention-days: 30
