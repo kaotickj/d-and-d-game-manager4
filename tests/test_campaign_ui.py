@@ -110,14 +110,99 @@ class CampaignUiTests(unittest.TestCase):
         self.assertEqual(dialog._item_by_id(dialog.campaigns, self.first.id).text(), "A Revised Campaign")
 
     def test_discard_does_not_save_and_session_switch_preserves_existing_state(self):
+        from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QMessageBox
         dialog = self.dialog()
+        campaign_item = dialog.campaigns.currentItem()
+        session_item = dialog._item_by_id(dialog.sessions, self.second_session.id)
+        dialog.campaign_notes.setPlainText("Discarded campaign notes")
+        dialog.party.item(0).setCheckState(Qt.CheckState.Checked)
         dialog.session_notes.setPlainText("Discarded text")
         with patch("dndgm4.campaign_ui.QMessageBox.question", return_value=QMessageBox.StandardButton.Discard):
             dialog._select_id(dialog.sessions, self.second_session.id)
         self.assertEqual(dialog._session.id, self.second_session.id)
+        self.assertIs(dialog.campaigns.currentItem(), campaign_item)
+        self.assertIs(dialog.sessions.currentItem(), session_item)
+        self.assertEqual(dialog.campaign_notes.toPlainText(), "")
+        self.assertEqual(dialog.party.item(0).checkState(), Qt.CheckState.Unchecked)
         self.assertEqual(self.repository.get_session(self.session.id).notes, "")
         self.assertFalse(dialog.save_button.isEnabled())
+
+    def test_discard_before_cancelled_new_encounter_cannot_resurrect_old_edits(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QMessageBox
+        self.repository.set_party(self.first.id, [self.pc.id])
+        dialog = self.dialog()
+        navigation = (dialog.campaigns.currentItem(), dialog.sessions.currentItem(),
+                      dialog.encounters.currentItem())
+        dialog.campaign_name.setText("Discarded campaign name")
+        dialog.campaign_description.setPlainText("Discarded premise")
+        dialog.campaign_notes.setPlainText("Discarded campaign secret")
+        dialog.campaign_archived.setChecked(True)
+        for row in range(dialog.party.count()):
+            item = dialog.party.item(row)
+            item.setCheckState(Qt.CheckState.Checked if dialog._id(item) == self.archived_pc.id
+                               else Qt.CheckState.Unchecked)
+        dialog.session_title.setText("Discarded session title")
+        dialog.session_date.setText("2026-10-22")
+        dialog.session_status.setCurrentIndex(dialog.session_status.findData("completed"))
+        dialog.session_notes.setPlainText("Discarded session events")
+        dialog.session_recap.setPlainText("Discarded recap")
+        with patch("dndgm4.campaign_ui.QMessageBox.question", return_value=QMessageBox.StandardButton.Discard), \
+                patch("dndgm4.campaign_ui.QInputDialog.getText", return_value=("", False)):
+            dialog.new_encounter()
+        self.assertFalse(dialog._campaign_dirty)
+        self.assertFalse(dialog._session_dirty)
+        self.assertFalse(dialog.save_button.isEnabled())
+        for widget, item in zip((dialog.campaigns, dialog.sessions, dialog.encounters), navigation):
+            self.assertIs(widget.currentItem(), item)
+        self.assertEqual(dialog.campaign_name.text(), self.first.name)
+        self.assertEqual(dialog.campaign_description.toPlainText(), self.first.description)
+        self.assertEqual(dialog.campaign_notes.toPlainText(), self.first.notes)
+        self.assertFalse(dialog.campaign_archived.isChecked())
+        self.assertEqual(dialog.session_title.text(), self.session.title)
+        self.assertEqual(dialog.session_date.text(), self.session.session_date)
+        self.assertEqual(dialog.session_status.currentData(), self.session.status)
+        self.assertEqual(dialog.session_notes.toPlainText(), self.session.notes)
+        self.assertEqual(dialog.session_recap.toPlainText(), self.session.recap)
+        checked = [dialog._id(dialog.party.item(row)) for row in range(dialog.party.count())
+                   if dialog.party.item(row).checkState() == Qt.CheckState.Checked]
+        self.assertEqual(checked, [self.pc.id])
+        dialog.campaign_description.setPlainText("Only the new premise survives")
+        self.assertTrue(dialog.save_changes())
+        saved = self.repository.get_campaign(self.first.id)
+        self.assertEqual(saved.name, self.first.name)
+        self.assertEqual(saved.description, "Only the new premise survives")
+        self.assertEqual(saved.notes, self.first.notes)
+        self.assertFalse(saved.archived)
+        self.assertEqual(self.repository.party_ids(self.first.id), [self.pc.id])
+        self.assertEqual(self.repository.get_session(self.session.id), self.session)
+        self.assertEqual(len(self.repository.list_encounters(self.session.id)), 1)
+
+    def test_failed_discard_read_keeps_dirty_draft_and_cancels_selection_change(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QMessageBox
+        dialog = self.dialog()
+        dialog.campaign_name.setText("Keep this unsaved name")
+        dialog.campaign_notes.setPlainText("Keep this campaign draft")
+        dialog.session_notes.setPlainText("Keep this session draft")
+        party_item = dialog.party.item(0)
+        party_item.setCheckState(Qt.CheckState.Checked)
+        previous_selection = dialog.campaigns.currentItem()
+        with patch("dndgm4.campaign_ui.QMessageBox.question", return_value=QMessageBox.StandardButton.Discard), \
+                patch.object(self.repository, "party_ids", side_effect=sqlite3.OperationalError("Unavailable")), \
+                patch("dndgm4.campaign_ui.QMessageBox.warning") as warning:
+            dialog._select_id(dialog.campaigns, self.second.id)
+        warning.assert_called_once()
+        self.assertIs(dialog.campaigns.currentItem(), previous_selection)
+        self.assertEqual(dialog.campaign_name.text(), "Keep this unsaved name")
+        self.assertEqual(dialog.campaign_notes.toPlainText(), "Keep this campaign draft")
+        self.assertEqual(dialog.session_notes.toPlainText(), "Keep this session draft")
+        self.assertEqual(party_item.checkState(), Qt.CheckState.Checked)
+        self.assertTrue(dialog._campaign_dirty)
+        self.assertTrue(dialog._session_dirty)
+        self.assertEqual(self.repository.get_campaign(self.first.id), self.first)
+        self.assertEqual(self.repository.get_session(self.session.id), self.session)
 
     def test_invalid_date_reports_error_and_preserves_unsaved_notes(self):
         from PyQt6.QtCore import Qt

@@ -256,7 +256,40 @@ class CampaignManagerDialog(QDialog):
             return False
         if answer == QMessageBox.StandardButton.Save:
             return self.save_changes()
-        self._campaign_dirty = self._session_dirty = False
+        return self._discard_edits()
+
+    def _discard_edits(self):
+        campaign, session = self._campaign, self._session
+        try:
+            # Resolve saved membership before touching any editor. A failed
+            # read must leave the complete dirty draft available to the DM.
+            party_ids = set(self.repository.party_ids(campaign.id)) if campaign else set()
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Changes not discarded", str(exc))
+            return False
+        was_loading = self._loading
+        self._loading = True
+        try:
+            self.campaign_name.setText(campaign.name if campaign else "")
+            self.campaign_description.setPlainText(campaign.description if campaign else "")
+            self.campaign_notes.setPlainText(campaign.notes if campaign else "")
+            self.campaign_archived.setChecked(bool(campaign and campaign.archived))
+            for row in range(self.party.count()):
+                item = self.party.item(row)
+                item.setCheckState(Qt.CheckState.Checked if self._id(item) in party_ids
+                                   else Qt.CheckState.Unchecked)
+            self.session_title.setText(session.title if session else "")
+            self.session_date.setText(session.session_date if session else "")
+            index = self.session_status.findData(session.status if session else "planned")
+            self.session_status.setCurrentIndex(max(index, 0))
+            self.session_notes.setPlainText(session.notes if session else "")
+            self.session_recap.setPlainText(session.recap if session else "")
+            self._campaign_dirty = self._session_dirty = False
+        finally:
+            self._loading = was_loading
+        # Do not rebuild navigation here: a campaign/session selection signal
+        # may already be processing the newly selected list item.
+        self._sync_actions()
         return True
 
     def _restore_selection(self, widget, record_id):
