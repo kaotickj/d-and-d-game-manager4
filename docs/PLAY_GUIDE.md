@@ -88,7 +88,21 @@ it for the next launch. Keep the original library until you have opened and
 checked the recovered campaign. A creature JSON export is useful for sharing
 records, but it is not a complete campaign backup.
 
-Detailed workflows: [campaigns](CAMPAIGNS.md), [world completion scope](FULL_FEATURE_PLAN.md),
+During play, open **Run Session** (Ctrl+R) for the party, scene, initiative,
+quick rolls and explicit session note appends in one window. It shares live
+combat state with Battle Trakker and preserves permanent character sheets.
+
+For supported equipment and conditional combat modifiers, select a character
+and open **Review Equipment & Modifiers**. Review the calculation before saving
+its profile, then use the Combat Desk's explicit character-suggestion controls.
+Saved manual AC and existing encounter snapshots stay separate.
+
+Use **Recall Campaign Sources** in Campaign Tools or Scribe to find relevant
+NPCs, quests, recorded notes and rules. Inspect and select sources, then preview
+the complete context. Player-facing recall searches explicit public fields;
+private sources and private planning requests cannot feed player narration.
+
+Detailed workflows: [campaign recall](CAMPAIGN_RECALL.md), [equipment calculations](EQUIPMENT_CALCULATIONS.md), [Run Session](RUN_SESSION.md), [campaigns](CAMPAIGNS.md), [world completion scope](FULL_FEATURE_PLAN.md),
 [maps](MAPS.md), [time](CAMPAIGN_TIME.md), [resources](RESOURCES.md),
 [handout images](HANDOUTS.md), [reviewed drafts](REVIEWED_DRAFTS.md),
 [spells](SPELL_PROGRESSION.md), [multiclass advancement](MULTICLASS.md), and
