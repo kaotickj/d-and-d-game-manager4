@@ -88,7 +88,11 @@ it for the next launch. Keep the original library until you have opened and
 checked the recovered campaign. A creature JSON export is useful for sharing
 records, but it is not a complete campaign backup.
 
-Detailed workflows: [campaigns](CAMPAIGNS.md), [world completion scope](FULL_FEATURE_PLAN.md),
+During play, open **Run Session** (Ctrl+R) for the party, scene, initiative,
+quick rolls and explicit session note appends in one window. It shares live
+combat state with Battle Trakker and preserves permanent character sheets.
+
+Detailed workflows: [Run Session](RUN_SESSION.md), [campaigns](CAMPAIGNS.md), [world completion scope](FULL_FEATURE_PLAN.md),
 [maps](MAPS.md), [time](CAMPAIGN_TIME.md), [resources](RESOURCES.md),
 [handout images](HANDOUTS.md), [reviewed drafts](REVIEWED_DRAFTS.md),
 [spells](SPELL_PROGRESSION.md), [multiclass advancement](MULTICLASS.md), and

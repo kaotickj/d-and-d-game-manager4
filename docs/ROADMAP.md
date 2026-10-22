@@ -49,6 +49,10 @@ or unmodeled rulings remain explicit DM decisions.
 
 ## Current development additions
 
+- Run Session dashboard shares the active party, live scene and combat
+  controller, with explicit dice/combat actions and stale-safe quick notes in
+  the existing session journal. See [Run Session](RUN_SESSION.md).
+
 - Persistent campaign/session manager, party roster, session status/date, notes
   and reviewed recaps, and isolated saved encounters. Schema v3 adds tables
   without rewriting creature templates or modifying standalone saves.

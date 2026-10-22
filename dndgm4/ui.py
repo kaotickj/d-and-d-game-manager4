@@ -251,6 +251,7 @@ class MainWindow(QMainWindow):
         library_menu.addAction("Restore Complete Backup…", self.restore_campaign_data)
         library_menu.addAction("Choose Library for Next Launch…", self.choose_library)
         tools_menu = self.menuBar().addMenu("Campaign Tools")
+        tools_menu.addAction("Run Session…", self.open_run_session)
         tools_menu.addAction("Campaigns && Sessions…", self.open_campaigns)
         tools_menu.addAction("World Desk && Quest Journal…", self.open_world)
         tools_menu.addAction("Maps && Player View…", self.open_maps)
@@ -280,6 +281,7 @@ class MainWindow(QMainWindow):
             self._scene_error = str(exc)
         self.active_kind = None
         self._battle_window = None
+        self._session_window = None
         self._encounter_generator_dialog = None
         self._encounter_generator_dialogs = {}
         self.setWindowTitle(f"Dungeons & Dragons Game Manager 4 · {__version__} · The Compendium")
@@ -305,6 +307,8 @@ class MainWindow(QMainWindow):
         self.workspace_label.setAccessibleName("Active campaign, session, and encounter")
         workspace_line.addWidget(self.workspace_label, 1)
         self.campaigns_button = action("Campaigns & Sessions…", self.open_campaigns)
+        self.run_session_button = action("Run Session", self.open_run_session, "primaryButton")
+        workspace_line.addWidget(self.run_session_button)
         workspace_line.addWidget(self.campaigns_button)
         body.addLayout(workspace_line)
         self._update_workspace_label()
@@ -328,6 +332,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+G"), self, activated=self.open_names)
         QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=self.open_narrator)
         QShortcut(QKeySequence("Ctrl+B"), self, activated=self.open_battle_trakker)
+        QShortcut(QKeySequence("Ctrl+R"), self, activated=self.open_run_session)
         self.refresh()
 
     def _update_workspace_label(self):
@@ -361,6 +366,8 @@ class MainWindow(QMainWindow):
             raise ValueError("Choose a saved campaign session or the standalone workspace.")
         self._flush_workspace()
         if workspace.session_id:
+            with self.campaigns._connection() as db:
+                self.campaigns._validate_workspace(db, workspace)
             scene_store = SessionSceneStore(self.campaigns, workspace.session_id)
             scene = scene_store.load()
             if workspace.encounter_id:
@@ -373,6 +380,9 @@ class MainWindow(QMainWindow):
             # Leave a damaged standalone battle untouched and stay in the
             # current session until it is repaired or explicitly imported.
             AdvancedBattleStore(self.library.path).load()
+        if (workspace != self.workspace and self._session_window is not None
+                and not self._session_window.prepare_workspace_change()):
+            return False
         if workspace.session_id:
             activated = self.campaigns.activate(workspace.campaign_id, workspace.session_id,
                                                 workspace.encounter_id)
@@ -394,6 +404,8 @@ class MainWindow(QMainWindow):
         self._scene_error = self._workspace_error = ""
         self._encounter_generator_dialog = self._encounter_generator_dialogs.get(activated.session_id)
         self._update_workspace_label()
+        if self._session_window is not None:
+            self._session_window.refresh()
         self.statusBar().showMessage("Workspace opened · " + self.workspace_label.text())
 
     def open_campaigns(self):
@@ -755,6 +767,7 @@ class MainWindow(QMainWindow):
         layout.addSpacing(12)
         layout.addWidget(rule())
         layout.addWidget(caption("THE GAME MASTER'S TOOLS", "eyebrow"))
+        layout.addWidget(action("Run Session  /  Live DM Dashboard", self.open_run_session, "primaryButton"))
         layout.addWidget(action("Campaigns & Sessions", self.open_campaigns))
         layout.addWidget(action("World Desk  /  Quests & Handouts", self.open_world))
         layout.addWidget(action("Maps  /  Grid, Tokens & Player View", self.open_maps))
@@ -1415,6 +1428,9 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         # QApplication.setQuitOnLastWindowClosed(False) is intentionally used:
         # only a deliberate close of the real main window ends the app.
+        if self._session_window is not None and not self._session_window.prepare_workspace_change():
+            event.ignore()
+            return
         try:
             self._flush_workspace()
         except (ValueError, OSError, sqlite3.Error) as exc:
@@ -1429,21 +1445,104 @@ class MainWindow(QMainWindow):
 
     def open_battle_trakker(self):
         """Open or reuse the live Battle Trakker without blocking Compendium."""
-        from .battle_ui import BattleTrakkerDialog
-        if self._battle_window is not None:
-            self._battle_window.set_scene(self.scene)
-            self._battle_window.show()
-            self._battle_window.raise_()
-            self._battle_window.activateWindow()
-            return self._battle_window
         try:
-            self._battle_window = BattleTrakkerDialog(
-                self.library, self, scene=self.scene, store=self._battle_store(create=True))
+            tracker = self._ensure_battle_tracker()
         except (ValueError, OSError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Battle Trakker save needs review", str(exc))
             return None
-        self._battle_window.show()
+        tracker.show()
+        tracker.raise_()
+        tracker.activateWindow()
+        return tracker
+
+    def _ensure_battle_tracker(self):
+        """Share one combat controller; dashboard use does not open its window."""
+        from .battle_ui import BattleTrakkerDialog
+        if self._battle_window is not None:
+            self._battle_window.set_scene(self.scene)
+            return self._battle_window
+        self._battle_window = BattleTrakkerDialog(
+            self.library, self, scene=self.scene, store=self._battle_store(create=True))
         return self._battle_window
+
+    def _run_session_snapshot(self):
+        from .run_session import build_session_snapshot
+        if self._workspace_error:
+            raise ValueError("The saved workspace needs review: " + self._workspace_error)
+        self._check_scene()
+        if self._battle_window is not None:
+            battle = self._battle_window.battle
+        else:
+            store = self._battle_store()
+            battle = store.load() if store is not None else None
+        return build_session_snapshot(self.library, self.campaigns, self.workspace, self.scene, battle)
+
+    def open_run_session(self):
+        from .run_session_ui import RunSessionDialog
+        if self._session_window is None:
+            self._session_window = RunSessionDialog(
+                self._run_session_snapshot, self._run_session_action, parent=self)
+        self._session_window.refresh()
+        self._session_window.show()
+        self._session_window.raise_()
+        self._session_window.activateWindow()
+        return self._session_window
+
+    def _run_session_action(self, action_name, **values):
+        """Explicit dashboard commands use existing owners and save boundaries."""
+        from .dice import roll_expression
+        from .run_session import append_session_note
+        if action_name == "roll":
+            result = roll_expression(values["expression"])
+            return f"{result.notation}: {result.detail}"
+        if action_name == "save_note":
+            if not self.workspace.session_id or values["session_id"] != self.workspace.session_id:
+                raise ValueError("The note belongs to a different session. Reopen that session to save it.")
+            append_session_note(self.campaigns, values["session_id"], values["note"],
+                                expected_notes=values["expected_notes"])
+            return "Note appended to the session journal."
+        links = {"campaigns": self.open_campaigns, "scene": self.edit_scene,
+                 "battle": self.open_battle_trakker, "rules": self.open_rules,
+                 "scribe": self.open_narrator, "maps": self.open_maps,
+                 "time": self.open_campaign_time, "resources": self.open_resources,
+                 "add_party": self.add_party_to_scene}
+        if action_name in links:
+            links[action_name]()
+            return None
+        if action_name not in {"roll_initiative", "start", "next_turn", "damage", "heal", "add_scene"}:
+            raise ValueError("Unknown Run Session action.")
+        self._check_scene()
+        tracker = self._ensure_battle_tracker()
+        battle = tracker.battle
+        snapshot, history = battle.snapshot(), list(battle._history)
+        try:
+            if action_name == "roll_initiative":
+                battle.roll_initiatives()
+            elif action_name == "start":
+                battle.begin()
+            elif action_name == "next_turn":
+                battle.advance()
+            elif action_name in {"damage", "heal"}:
+                battle.change_hp(values["combatant_id"], values["amount"], heal=action_name == "heal")
+            else:
+                records = []
+                for identity in self.scene["record_ids"]:
+                    record = self.library.get(identity)
+                    if record is None or record.archived:
+                        raise ValueError("A scene record is missing or archived; review the scene roster.")
+                    if not any(member.source_id == identity for member in battle.fighters):
+                        records.append(record)
+                if not records:
+                    return "The scene roster is already in this encounter."
+                tracker._add_records(records)
+            tracker._save()
+        except (ValueError, OSError, sqlite3.Error):
+            tracker.battle = type(battle).from_dict({"version": 1, **snapshot})
+            tracker.battle._history = history
+            tracker.render()
+            raise
+        tracker.render()
+        return "Encounter saved. Permanent character records are unchanged."
 
     def load_selection_to_battle(self):
         records = self.selected_records()
