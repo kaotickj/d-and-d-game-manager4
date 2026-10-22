@@ -1,4 +1,5 @@
 """Dashboard projections use live state; quick notes cannot clobber journals."""
+from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 import sqlite3
@@ -113,7 +114,7 @@ class RunSessionTests(unittest.TestCase):
         scene = dict(self.scene, record_ids=[self.hero.id, "gone"])
         self.assertEqual(self.snapshot(scene=scene)["scene_roster"], ["Bran", "[Missing record: gone]"])
         # Deliberately model a corrupt legacy DB; normal repository APIs prevent this.
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("UPDATE campaign_members SET creature_id='gone' WHERE campaign_id=?", (self.campaign.id,))
         with self.assertRaisesRegex(ValueError, "Party member no longer exists"):
             self.snapshot()
