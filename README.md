@@ -12,6 +12,50 @@ The **Compendium** provides a searchable, persistent SQLite library for player c
 This remains **a partial D&D 3.5 rules engine**, not a full implementation. See
 [the roadmap](docs/ROADMAP.md) for the next milestones.
 
+## Development: level up and prepare a session
+
+Select an active PC or NPC and click **Level Up…**. Choose a guided build or
+**Apply Class Defaults**, roll the class Hit Die with the built-in roller (or
+enter a tabletop result), and pick skills, feats, class options, and an ability
+increase when due. Review the resulting level, HP, BAB, and base saves before
+**Save Level Up**. Defaults fill editable choices and never roll or save on their
+own. Each level stores its dice and choices in the character's level history.
+
+The eleven core classes and five NPC classes have numeric progressions through
+level 20. Every existing class template has a default training strategy.
+Supplemental and homebrew classes first collect a DM-confirmed progression
+profile, which is remembered for later levels. Spell choices beyond the starter
+catalog, unmodeled class features, and situational effects remain reviewed
+entries. Multiclass advancement is a later milestone. See
+[the advancement rules and scope](docs/ADVANCEMENT_RULES.md).
+
+**The Scribe / DM Assistant** supports scene narration, campaign planning,
+session preparation, advice during play, and session recaps. Load a scene or
+selected records, choose the task, and add a request. **Discuss Current Battle
+with Scribe** loads the current encounter's HP, initiative, conditions, effects,
+and history for advice. Generated text stays editable and can be copied or
+saved as a text/Markdown draft. Only **Generate Locally** starts inference; an
+existing local GGUF model/llama.cpp runtime or Ollama installation is required.
+Plans and advice do not change saved statistics or decide player actions.
+
+**Roll a Random Encounter** prepares an editable scene, creature group, motives,
+hook, complication, and read-aloud text, with an auditable roll log. Use active
+NPC/monster templates or roll original creature baselines even in an empty
+library. Original creatures roll abilities and HP; saved templates retain their
+statistics. Choose a count such as `1d4`, `2d6`, or a fixed number from 1 to 12,
+and optionally roll initiative. Review the creatures and scene before saving as
+the current scene, adding independent copies to Battle Trakker, or opening the
+proposal in the Scribe. Battle handoff adds to the current encounter; combat
+starts separately. Original creatures have no assigned CR, and encounter balance
+is reviewed by the DM. Reopen the generator to reuse its last roll and edits for
+another handoff during the same app session. Templates are never changed by
+encounter generation.
+
+The Scribe currently accepts 6,000 characters of context plus request. Oversized
+context is reported before generation, without silently truncating saved facts.
+Campaign/session storage and complete backup bundles covering scenes and combat
+are still planned; the current backup command covers the SQLite library.
+
 ## Installation (Python 3.11+)
 
 Clone the repository, then run:

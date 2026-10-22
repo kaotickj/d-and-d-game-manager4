@@ -2,11 +2,27 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
+import tempfile
 
 from PyQt6.QtCore import Qt, QObject, QRunnable, QSettings, QThreadPool, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
-    QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+)
+
+
+DM_TASKS = (
+    ("dm", "Scene narration",
+     "Player-facing read-aloud text, with sensory details and room for player choices."),
+    ("campaign_plan", "Campaign planning",
+     "Develop a premise, factions, locations, hooks and branching consequences."),
+    ("session_plan", "Session preparation",
+     "Prepare flexible scenes, NPC motives, clues, complications and pacing."),
+    ("dm_advice", "Advice during play",
+     "Describe the decision or rules question. Review suggestions and uncertain rulings as the DM."),
+    ("recap", "Session recap",
+     "Supply what actually happened; the recap uses recorded events and marks missing information."),
 )
 
 from .local_ai import (
@@ -66,23 +82,47 @@ class AIWritingDialog(QDialog):
         self.settings = QSettings("Kaotick Jay", "DnDGameManager4")
         self.setWindowTitle("The Scribe | Local AI Writing Assistant")
         self.resize(790, 750)
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.form_scroll = QScrollArea()
+        self.form_scroll.setWidgetResizable(True)
+        self.form_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        form = QWidget()
+        root = QVBoxLayout(form)
+        self.form_scroll.setWidget(form)
+        outer.addWidget(self.form_scroll)
         root.setContentsMargins(22, 20, 22, 18)
         root.setSpacing(11)
 
         heading = QLabel("THE SCRIBE  /  LOCAL WRITING STUDIO")
         heading.setObjectName("eyebrow")
         root.addWidget(heading)
-        title = QLabel({
+        self.title = QLabel({
             "bio": "Player Character Biography",
             "npc_bio": "Nonplayer Character Biography",
             "character_build": "Complete D&D 3.5 Character Draft",
             "monster_bio": "Monster Bestiary Biography",
-            "dm": "Dungeon Master's Narrator",
+            "dm": "Dungeon Master's Assistant",
             "names": "AI Name Inspiration",
         }[kind])
-        title.setObjectName("pageTitle")
-        root.addWidget(title)
+        self.title.setObjectName("pageTitle")
+        root.addWidget(self.title)
+
+        self.engine_settings = QWidget()
+        engine_root = QVBoxLayout(self.engine_settings)
+        engine_root.setContentsMargins(0, 0, 0, 0)
+        engine_root.setSpacing(9)
+        if kind == "dm":
+            self.settings_toggle = QPushButton("Local model settings ▸")
+            self.settings_toggle.setCheckable(True)
+            self.settings_toggle.setAccessibleName("Show or hide local model settings")
+            self.settings_toggle.toggled.connect(self.engine_settings.setVisible)
+            self.settings_toggle.toggled.connect(lambda visible: self.settings_toggle.setText(
+                "Local model settings ▾" if visible else "Local model settings ▸"))
+            root.addWidget(self.settings_toggle)
+            self.engine_settings.hide()
+        root.addWidget(self.engine_settings)
 
         info = QLabel(
             "Use your existing Goodneighbor Blues AI Writer GGUF files in "
@@ -92,7 +132,7 @@ class AIWritingDialog(QDialog):
         )
         info.setObjectName("muted")
         info.setWordWrap(True)
-        root.addWidget(info)
+        engine_root.addWidget(info)
 
         engine_line = QHBoxLayout()
         engine_line.addWidget(QLabel("Inference backend"))
@@ -101,7 +141,7 @@ class AIWritingDialog(QDialog):
         self.backend.addItem("Ollama localhost server (optional)", "ollama")
         self.backend.setAccessibleName("Local writing engine")
         engine_line.addWidget(self.backend, 1)
-        root.addLayout(engine_line)
+        engine_root.addLayout(engine_line)
 
         preset_line = QHBoxLayout()
         self.presets_label = QLabel("Model preset")
@@ -117,7 +157,7 @@ class AIWritingDialog(QDialog):
         preset_line.addWidget(self.preset, 1)
         self.preset_row = QWidget()
         self.preset_row.setLayout(preset_line)
-        root.addWidget(self.preset_row)
+        engine_root.addWidget(self.preset_row)
 
         model_row = QHBoxLayout()
         model_row.addWidget(QLabel("Model file / name"))
@@ -128,7 +168,7 @@ class AIWritingDialog(QDialog):
         self.browse_model = QPushButton("Browse…")
         self.browse_model.clicked.connect(self._browse_model)
         model_row.addWidget(self.browse_model)
-        root.addLayout(model_row)
+        engine_root.addLayout(model_row)
 
         runtime_line = QHBoxLayout()
         runtime_line.addWidget(QLabel("llama-server"))
@@ -142,7 +182,7 @@ class AIWritingDialog(QDialog):
         runtime_line.addWidget(choose_runner)
         self.runtime_row = QWidget()
         self.runtime_row.setLayout(runtime_line)
-        root.addWidget(self.runtime_row)
+        engine_root.addWidget(self.runtime_row)
 
         gpu_line = QHBoxLayout()
         gpu_line.addWidget(QLabel("GPU layers"))
@@ -161,7 +201,30 @@ class AIWritingDialog(QDialog):
         gpu_line.addStretch()
         self.gpu_row = QWidget()
         self.gpu_row.setLayout(gpu_line)
-        root.addWidget(self.gpu_row)
+        engine_root.addWidget(self.gpu_row)
+
+        if kind == "dm":
+            task_line = QHBoxLayout()
+            task_line.addWidget(QLabel("Help with"))
+            self.dm_task = QComboBox()
+            self.dm_task.setAccessibleName("Dungeon Master assistance task")
+            for task, label, _ in DM_TASKS:
+                self.dm_task.addItem(label, task)
+            task_line.addWidget(self.dm_task, 1)
+            root.addLayout(task_line)
+            self.task_hint = QLabel(DM_TASKS[0][2])
+            self.task_hint.setWordWrap(True)
+            self.task_hint.setObjectName("muted")
+            root.addWidget(self.task_hint)
+            request_line = QHBoxLayout()
+            request_line.addWidget(QLabel("Your request"))
+            self.dm_request = QLineEdit()
+            self.dm_request.setMaxLength(2000)
+            self.dm_request.setAccessibleName("Request for the Dungeon Master assistant")
+            self.dm_request.setPlaceholderText("What would help you plan or run this session?")
+            request_line.addWidget(self.dm_request, 1)
+            root.addLayout(request_line)
+            self.dm_task.currentIndexChanged.connect(self._update_task)
 
         root.addWidget(QLabel("Prompt / Campaign Details"))
         self.context = QPlainTextEdit()
@@ -184,9 +247,11 @@ class AIWritingDialog(QDialog):
         self.status = QLabel("Ready. Select a local model and choose Generate.")
         self.status.setObjectName("muted")
         self.status.setWordWrap(True)
-        root.addWidget(self.status)
+        self.status.setContentsMargins(22, 0, 22, 0)
+        outer.addWidget(self.status)
 
         actions = QHBoxLayout()
+        actions.setContentsMargins(22, 0, 22, 16)
         self.generate_button = QPushButton("Generate Locally")
         self.generate_button.setObjectName("primaryButton")
         self.generate_button.clicked.connect(self.generate)
@@ -194,6 +259,10 @@ class AIWritingDialog(QDialog):
         copy = QPushButton("Copy Draft")
         copy.clicked.connect(self.copy_text)
         actions.addWidget(copy)
+        self.save_draft_button = QPushButton("Save Draft…")
+        self.save_draft_button.setAccessibleName("Save the editable draft as a text file")
+        self.save_draft_button.clicked.connect(self.save_draft)
+        actions.addWidget(self.save_draft_button)
         actions.addStretch()
         self.use = QPushButton(
             "Use Draft" if kind in ("bio", "npc_bio", "monster_bio", "character_build", "names")
@@ -201,7 +270,7 @@ class AIWritingDialog(QDialog):
         )
         self.use.clicked.connect(self.accept_draft)
         actions.addWidget(self.use)
-        root.addLayout(actions)
+        outer.addLayout(actions)
         self.backend.currentIndexChanged.connect(self._update_engine)
         self._update_engine()
 
@@ -248,12 +317,27 @@ class AIWritingDialog(QDialog):
             self.runner.setText(path)
 
     def generate(self):
+        # Keep the loaded saved-record context intact; a task-specific request
+        # is appended only for this generation, never written into the library.
+        context = self.context.toPlainText()
+        task = self.kind
+        if self.kind == "dm":
+            task = self.dm_task.currentData()
+            request = self.dm_request.text().strip()
+            if request:
+                context = context.rstrip() + ("\n\n" if context.strip() else "")
+                context += "DM REQUEST:\n" + request
+        if not 1 <= len(context.strip()) <= 6000:
+            self.status.setText(
+                "Provide 1–6,000 characters of context and request combined. "
+                "Shorten the text before generating; no details were omitted.")
+            return
         backend = self.backend.currentData()
         if backend == "gguf":
             self.settings.setValue("scribe/llama_server", self.runner.text().strip())
         self.generate_button.setEnabled(False)
         self.status.setText("Generating using the local model. First load may take time…")
-        job = _Generate(self.kind, self.context.toPlainText(),
+        job = _Generate(task, context,
                         self.model.text().strip(), backend,
                         self.runner.text().strip() if backend == "gguf" else "",
                         self.gpu_layers.value() if backend == "gguf" else 0)
@@ -261,6 +345,39 @@ class AIWritingDialog(QDialog):
         job.signals.done.connect(self.generation_completed)
         job.signals.failed.connect(self.failed)
         QThreadPool.globalInstance().start(job)
+
+    def _update_task(self):
+        task = self.dm_task.currentData()
+        self.task_hint.setText(next(hint for key, _, hint in DM_TASKS if key == task))
+
+    def save_draft(self):
+        draft = self.result.toPlainText()
+        if not draft.strip():
+            QMessageBox.information(self, "Nothing to save", "Write or generate a draft first.")
+            return
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Save Scribe Draft", "scribe-draft.txt",
+            "Text files (*.txt);;Markdown files (*.md)")
+        if not filename:
+            return
+        target = Path(filename)
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", dir=target.parent,
+                    prefix=".scribe_", suffix=".tmp", delete=False) as output:
+                temporary = Path(output.name)
+                output.write(draft)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, target)
+        except (OSError, UnicodeError) as exc:
+            QMessageBox.warning(self, "Draft not saved", str(exc))
+            return
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        self.status.setText(f"Draft saved · {target}")
 
     def generation_completed(self, output):
         """Handle completed inference without overriding QDialog.done(int).

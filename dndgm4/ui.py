@@ -256,6 +256,7 @@ class MainWindow(QMainWindow):
             self._scene_error = str(exc)
         self.active_kind = None
         self._battle_window = None
+        self._encounter_generator_dialog = None
         self.setWindowTitle(f"Dungeons & Dragons Game Manager 4 · {__version__} · The Compendium")
         self.setWindowIcon(window_icon())
         # 10% larger default desktop window; do not scale fonts, banners,
@@ -398,9 +399,12 @@ class MainWindow(QMainWindow):
         names_button.setAccessibleName("Open standalone RPG Name Genie name generator")
         layout.addWidget(names_button)
         layout.addWidget(caption("Ctrl+G opens the Name Genie", "muted"))
-        narrator = action("The Scribe  /  DM Narration", self.open_narrator)
-        narrator.setAccessibleName("Open the local AI Dungeon Master narration tool")
+        narrator = action("The Scribe  /  DM Assistant", self.open_narrator)
+        narrator.setAccessibleName("Open local AI campaign planning, narration and Dungeon Master advice")
         layout.addWidget(narrator)
+        encounters = action("Roll a Random Encounter", self.open_encounter_generator)
+        encounters.setAccessibleName("Generate and review a random encounter and scene")
+        layout.addWidget(encounters)
         combat = action("Battle Trakker  /  Combat Manager", self.open_battle_trakker)
         combat.setAccessibleName("Open the D&D 3.5 Battle Trakker encounter manager")
         layout.addWidget(combat)
@@ -523,6 +527,8 @@ class MainWindow(QMainWindow):
                                          self.load_selection_to_battle)
         combat_actions.addWidget(self.send_battle_button)
         pane.addLayout(combat_actions)
+        self.battle_advice_button = action("Discuss Current Battle with Scribe", self.discuss_battle)
+        pane.addWidget(self.battle_advice_button)
         scene_actions = QHBoxLayout()
         self.edit_scene_button = action("Edit Scene", self.edit_scene)
         scene_actions.addWidget(self.edit_scene_button)
@@ -591,6 +597,9 @@ class MainWindow(QMainWindow):
         details.addWidget(self.notes_preview, 1)
         self.edit_button = action("Edit Record", self.edit, "primaryButton")
         details.addWidget(self.edit_button)
+        self.level_up_button = action("Level Up…", self.level_up)
+        self.level_up_button.setAccessibleName("Roll hit points and choose character level-up options")
+        details.addWidget(self.level_up_button)
         controls = QHBoxLayout()
         self.duplicate_button = action("Duplicate", self.duplicate)
         controls.addWidget(self.duplicate_button)
@@ -696,6 +705,9 @@ class MainWindow(QMainWindow):
         record = selection[0] if len(selection) == 1 else None
         for control in (self.edit_button, self.duplicate_button, self.archive_button):
             control.setEnabled(record is not None)
+        self.level_up_button.setEnabled(
+            record is not None and record.kind in ("pc", "npc")
+            and not record.archived and 1 <= record.level < 20)
         self.add_scene_button.setEnabled(bool(selection))
         self.load_selected_button.setEnabled(bool(selection))
         self.send_battle_button.setEnabled(bool(selection))
@@ -780,6 +792,31 @@ class MainWindow(QMainWindow):
             self.notes_preview.setPlainText(text)
         else:
             self.notes_preview.setPlainText(record.notes)
+        progression = sheet.get("progression", {})
+        if isinstance(progression, dict) and type(progression.get("base_attack_bonus")) is int:
+            lines = [f"LEVEL PROGRESSION · Level {record.level}",
+                     f"Base attack bonus: +{progression['base_attack_bonus']}"]
+            base_saves = progression.get("base_saves", {})
+            if isinstance(base_saves, dict):
+                lines.append("Base saves: " + " / ".join(
+                    f"{name.title()} {base_saves[key]:+d}" for key, name in
+                    (("fort", "Fort"), ("ref", "Ref"), ("will", "Will"))
+                    if type(base_saves.get(key)) is int))
+            self.detail.setText(self.detail.text() + "\n" + "\n".join(lines))
+        history = sheet.get("advancement_history", [])
+        if isinstance(history, list) and history:
+            entries = ["LEVEL HISTORY"]
+            for event in history:
+                if not isinstance(event, dict):
+                    continue
+                entries.append(f"Level {event.get('from_level', '?')} → {event.get('to_level', '?')}: "
+                               f"{event.get('hp_roll_detail') or event.get('hp_roll', '?')}; "
+                               f"HP gained {event.get('hp_gain', '?')}, "
+                               f"retroactive CON HP {event.get('retroactive_constitution_hp', 0)}.")
+                for key in ("ability_increase", "skill_increases", "feats", "class_choices", "class_notes", "spell_notes"):
+                    if event.get(key):
+                        entries.append(f"{key.replace('_', ' ').title()}: {event[key]}")
+            self.notes_preview.appendPlainText("\n" + "\n".join(entries))
         self.archive_button.setText("Restore" if record.archived else "Archive")
 
     def persist(self, record):
@@ -860,20 +897,113 @@ class MainWindow(QMainWindow):
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "Cannot load full Scribe context", str(exc))
             return
+        self._open_scribe_with_context(context)
+
+    def _open_scribe_with_context(self, context, *, task=None):
         existing = getattr(self, "_narrator_dialog", None)
         if existing is not None:
             # Explicit Load means replace the context, not the generated
             # draft. The draft is always editable and remains intact.
             existing.context.setPlainText(context)
+            if task is not None:
+                existing.dm_task.setCurrentIndex(existing.dm_task.findData(task))
             existing.show()
             existing.raise_()
             existing.activateWindow()
             return
         writer = AIWritingDialog("dm", context, self)
+        if task is not None:
+            writer.dm_task.setCurrentIndex(writer.dm_task.findData(task))
         writer.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         writer.setWindowModality(Qt.WindowModality.NonModal)
         self._narrator_dialog = writer
         writer.show()
+
+    def discuss_battle(self):
+        import json
+        from .battle_advanced import AdvancedBattleStore
+        try:
+            battle = (self._battle_window.battle if self._battle_window is not None
+                      else AdvancedBattleStore(self.library.path).load())
+            if not battle.fighters:
+                raise ValueError("Add combatants to Battle Trakker before asking about the current battle.")
+            context = ("CURRENT D&D 3.5 BATTLE — DM CONTEXT\n"
+                       "These are saved encounter instances, including current HP, initiative, "
+                       "conditions, effects, and event history. Do not invent dice results or "
+                       "change saved state.\n" + json.dumps(battle.snapshot(), ensure_ascii=False))
+            if len(context) > 6000:
+                raise ValueError("The complete battle context exceeds the Scribe's 6,000-character limit. "
+                                 "Open the Scribe and enter the specific situation to discuss; "
+                                 "no battle details were silently omitted.")
+            self._open_scribe_with_context(context, task="dm_advice")
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "Cannot discuss battle", str(exc))
+
+    def open_encounter_generator(self):
+        from .encounter_ui import EncounterGeneratorDialog
+        try:
+            dialog = self._encounter_generator_dialog
+            if dialog is None:
+                dialog = EncounterGeneratorDialog(self.library.list(), self)
+                self._encounter_generator_dialog = dialog
+            else:
+                # Keep the reviewed dice and edits available for the next
+                # handoff. New rolls use the latest library templates.
+                dialog.records = tuple(self.library.list())
+            if dialog.exec() != QDialog.DialogCode.Accepted or dialog.result_draft is None:
+                return
+            draft = dialog.result_draft
+            if dialog.result_action == "scene":
+                self._check_scene()
+                scene = draft.to_scene(self.scene)
+                self.scene_store.save(scene)
+                self.scene = scene
+                self.statusBar().showMessage("Generated encounter saved as the current scene.")
+            elif dialog.result_action == "scribe":
+                self._open_scribe_with_context(draft.scribe_context(), task="session_plan")
+            elif dialog.result_action == "battle":
+                from copy import deepcopy
+                tracker = self.open_battle_trakker()
+                if tracker is None:
+                    return
+                candidate = deepcopy(tracker.battle)
+                if not candidate.fighters:
+                    candidate.title = draft.title
+                candidate.scene = "\n\n".join(part for part in (candidate.scene, draft.dm_brief()) if part)
+                if len(candidate.scene) > 12000:
+                    raise ValueError("The combined encounter notes exceed Battle Trakker's size limit.")
+                for fighter in draft.fighters:
+                    candidate.add(fighter)
+                tracker.store.save(candidate)
+                tracker.battle = candidate
+                tracker.encounter_title.setText(candidate.title)
+                tracker.render()
+                self.statusBar().showMessage(f"Added {len(draft.fighters)} independent combatants to Battle Trakker.")
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Encounter not applied", str(exc))
+
+    def level_up(self):
+        from .advancement import needs_progression_profile
+        from .advancement_ui import LevelUpDialog, ProgressionProfileDialog
+        record = self.selected()
+        if record is None:
+            return
+        try:
+            profile = None
+            if needs_progression_profile(record):
+                profile_dialog = ProgressionProfileDialog(record, self)
+                if profile_dialog.exec() != QDialog.DialogCode.Accepted:
+                    return
+                profile = profile_dialog.result_profile
+            dialog = LevelUpDialog(record, self, profile=profile)
+            if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result_creature is not None:
+                current = self.library.get(record.id)
+                if current != record:
+                    raise ValueError("This character changed while the level-up draft was open. "
+                                     "Reopen Level Up to use the current sheet.")
+                self.persist(dialog.result_creature)
+        except (ValueError, TypeError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Unable to level up", str(exc))
 
     def load_selection_to_scribe(self):
         self._show_scribe_context("selection")
