@@ -246,6 +246,20 @@ class RecoveryTests(unittest.TestCase):
             db.commit()
         self.assert_corrupt_domain_refused("(?i)calendar")
 
+    def test_real_and_blob_core_fields_are_rejected_before_backup_or_restore(self):
+        create_backup(self.repo, self.archive)
+        archive_bytes = self.archive.read_bytes()
+        source_bytes = self.path.read_bytes()
+        for column, value, message in (("strength", 13.5, "whole number"),
+                                       ("sheet_json", b'{}', "must be text")):
+            with self.subTest(column=column):
+                self.archive.write_bytes(archive_bytes)
+                self.path.write_bytes(source_bytes)
+                with closing(sqlite3.connect(self.path)) as db:
+                    db.execute(f"UPDATE creatures SET {column}=? WHERE id=?", (value,self.hero.id))
+                    db.commit()
+                self.assert_corrupt_domain_refused(message)
+
     def test_damaged_resource_command_is_rejected_during_backup_and_restore(self):
         from dndgm4.resources import ResourceRepository
         resources = ResourceRepository(self.path)

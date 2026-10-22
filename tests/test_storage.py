@@ -72,6 +72,21 @@ class CreatureRepositoryTests(unittest.TestCase):
             self.repo.save(replace(saved, sheet_json=nested))
         self.assertEqual(self.repo.get(saved.id), saved)
 
+    def test_invalid_core_types_do_not_enter_the_saved_library(self):
+        baseline = self.repo.save(Creature(name="Preserved hero"))
+        for attr in ("level", "armor_class", "max_hit_points", "strength", "dexterity",
+                     "constitution", "intelligence", "wisdom", "charisma"):
+            for value in (True, 13.5, "13", None):
+                with self.subTest(attr=attr,value=value),self.assertRaises(ValueError):
+                    self.repo.save(replace(baseline, **{attr:value}))
+        for attr in ("id", "name", "kind", "race_type", "character_class", "challenge_rating",
+                     "notes", "sheet_json", "created_at", "updated_at"):
+            with self.subTest(attr=attr),self.assertRaises(ValueError):
+                self.repo.save(replace(baseline, **{attr:b'{}'}))
+        with self.assertRaises(ValueError):
+            self.repo.save(replace(baseline, archived=1))
+        self.assertEqual(self.repo.get(baseline.id),baseline)
+
     def test_refuse_newer_schema(self):
         with closing(sqlite3.connect(self.path)) as db:
             db.execute("PRAGMA user_version = 99")

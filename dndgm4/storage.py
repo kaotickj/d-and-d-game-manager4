@@ -37,6 +37,16 @@ def default_database_path() -> Path:
 
 
 def validate(creature: Creature) -> None:
+    for attr in ("id", "name", "kind", "race_type", "character_class", "challenge_rating",
+                 "notes", "sheet_json", "created_at", "updated_at"):
+        if not isinstance(getattr(creature, attr), str):
+            raise ValueError(f"{attr.replace('_', ' ').title()} must be text.")
+    for attr in ("level", "armor_class", "max_hit_points", "strength", "dexterity",
+                 "constitution", "intelligence", "wisdom", "charisma"):
+        if type(getattr(creature, attr)) is not int:
+            raise ValueError(f"{attr.replace('_', ' ').title()} must be a whole number.")
+    if type(creature.archived) is not bool:
+        raise ValueError("Archived must be a checkbox value.")
     if creature.kind not in KINDS:
         raise ValueError("Record type must be PC, NPC, or monster.")
     if not creature.name.strip():
