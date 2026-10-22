@@ -71,8 +71,9 @@ A recap requires saved notes or encounter outcomes selected as evidence. Check
 that they describe events that occurred, insert their citations, and review the
 complete replacement. Source citations help you inspect support; they do not
 decide whether a model's claim is true. Public summaries and player handouts
-require a separate review for secrets. A handout export contains only its
-explicit Player text.
+require a separate review for secrets. A gallery public ZIP contains the
+explicit Player text and selected sanitized image; the World Desk text export
+contains only the Player text.
 
 ## End the session and protect the campaign
 

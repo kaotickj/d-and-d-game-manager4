@@ -133,12 +133,40 @@ def _verify_core(library, expected):
             "encounters": 1, "scene_and_party_retained": True}
 
 
+def _font_environment(app):
+    from PyQt6.QtCore import PYQT_VERSION_STR, QT_VERSION_STR
+    return {"application_font_family": app.font().family(),
+            "backend": app.platformName(), "qt_version": QT_VERSION_STR,
+            "pyqt_version": PYQT_VERSION_STR}
+
+
+def _check_application_font():
+    """Reject missing font databases that otherwise produce valid tofu captures."""
+    from PyQt6.QtGui import QRawFont
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance()
+    _require(app is not None, "Font validation requires the application instance.")
+    details = _font_environment(app)
+    context = (f"family={details['application_font_family']!r}, backend={details['backend']!r}, "
+               f"Qt={details['qt_version']}, PyQt={details['pyqt_version']}")
+    raw_font = QRawFont.fromFont(app.font())
+    _require(raw_font.isValid(), f"Qt application font is invalid ({context}).")
+    probe = "D&D Game Manager 4"
+    glyphs = raw_font.glyphIndexesForString(probe)
+    _require(len(glyphs) == len(probe) and all(glyphs[index] > 0
+             for index, character in enumerate(probe) if not character.isspace()),
+             f"Qt application font is missing ASCII title glyphs ({context}).")
+    return {**details, "resolved_font_family": raw_font.familyName(),
+            "probe": probe, "glyph_indexes": glyphs}
+
+
 def _check_artwork():
     from importlib.resources import files
     from PyQt6.QtCore import QByteArray
     from PyQt6.QtGui import QImage, QImageReader
     from PyQt6.QtSvg import QSvgRenderer
     from .artwork import load_artwork, window_icon
+    font = _check_application_font()
     assets = files("dndgm4").joinpath("assets")
     checked = []
     load_artwork.cache_clear()
@@ -160,7 +188,7 @@ def _check_artwork():
         _require(decoded.loadFromData(payload, "SVG") and not decoded.isNull(),
                  f"Qt image plugin could not render packaged SVG: {name}")
         checked.append(name)
-    return {"assets": checked + ["app_icon.ico"], "qt_image_formats": formats}
+    return {"assets": checked + ["app_icon.ico"], "qt_image_formats": formats, "font": font}
 
 
 def run_packaged_smoke(report_path) -> int:
@@ -222,6 +250,7 @@ def run_packaged_smoke(report_path) -> int:
             apply_theme(app)
         previous_quit = app.quitOnLastWindowClosed()
         app.setQuitOnLastWindowClosed(False)
+        report["qt"] = _font_environment(app)
         check("packaged_artwork_and_svg", _check_artwork)
 
         def render(name, factory, size=(1050, 720)):

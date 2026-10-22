@@ -109,19 +109,25 @@ The SQLite database is created in the user application data directory,
 - Linux: ~/.local/share/DnDGameManager4/library.sqlite3 (or XDG_DATA_HOME)
 - macOS: ~/Library/Application Support/DnDGameManager4/library.sqlite3
 
-Back up this file before switching to a future application version.
+Before upgrading, use **Library → Create Complete Campaign Backup…** to preserve
+the library, standalone scene and battle saves, rules references, and managed
+map and handout images together. **Library → Restore Complete Backup…** validates
+the archive and restores a copy into a new folder, preserving the current library.
+See the [play guide](docs/PLAY_GUIDE.md) for the complete workflow.
 
-Use **Library → Back Up Library…** to save a consistent SQLite snapshot while
+**Library → Back Up Library…** saves a consistent SQLite-only snapshot while
 the app is running. **Library → Export Library as JSON…** exports all permanent
 PC, NPC, and monster records, including archived records and character sheets.
 Both commands write complete files before replacing an existing destination and
 refuse to overwrite the active database. The **SQLite backup includes campaigns,
 parties, session journals and scenes, named encounter state, and the active
 workspace**. JSON export/import covers creature records only. Standalone
-`current_scene.json` and `battle_trakker.json` are separate and are not included
-in a SQLite backup; import them into a campaign to capture their copied state.
-To restore a SQLite backup, close the app, preserve the current database, and
-copy the backup to the database location listed above.
+`current_scene.json`, `battle_trakker.json`, rules databases, and managed map and
+handout image files are not included in a SQLite-only backup. Restoring just
+SQLite can leave image references without their files. For a SQLite-only
+restore, close the app, preserve the current database, and copy the backup to
+the database location listed above; preserve and restore its supporting files
+separately. Use Complete Campaign Backup for recovery of the whole campaign.
 
 **Library → Import Library from JSON…** opens a preview of a DnDGM4 JSON export.
 Records match by their saved IDs, including archived records; matching names

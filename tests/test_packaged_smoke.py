@@ -9,7 +9,7 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 class SmokeImportTests(unittest.TestCase):
@@ -69,6 +69,16 @@ class PackagedSmokeTests(unittest.TestCase):
             "reopened_restored_core_records", "restored_campaign_tools_and_assets", "restart_restored_main_window"}
         self.assertEqual(set(checks), required)
         self.assertTrue(all(check["status"] == "passed" for check in checks.values()))
+        font = checks["packaged_artwork_and_svg"]["details"]["font"]
+        self.assertEqual(font["probe"], "D&D Game Manager 4")
+        self.assertTrue(font["resolved_font_family"])
+        self.assertTrue(font["backend"])
+        self.assertTrue(font["qt_version"])
+        self.assertTrue(font["pyqt_version"])
+        self.assertEqual(font["application_font_family"], self.app.font().family())
+        self.assertTrue(all(font["glyph_indexes"][index] > 0
+                           for index, character in enumerate(font["probe"]) if not character.isspace()))
+        self.assertEqual(report["qt"]["backend"], self.app.platformName())
         self.assertEqual(checks["main_window_830x540"]["details"]["size"], [830, 540])
         self.assertEqual(len(report["screenshots"]), 14)
         for filename in report["screenshots"]:
@@ -117,6 +127,40 @@ class PackagedSmokeTests(unittest.TestCase):
         report = self.read_report()
         self.assertEqual(report["status"], "failed")
         self.assertIn("SVG image plugin is unavailable", report["errors"][0]["error"])
+
+    def test_invalid_application_font_fails_before_any_capture(self):
+        from dndgm4.packaged_smoke import run_packaged_smoke
+        raw_font = Mock()
+        raw_font.isValid.return_value = False
+        with patch("PyQt6.QtGui.QRawFont.fromFont", return_value=raw_font):
+            self.assertEqual(run_packaged_smoke(self.report_path), 1)
+        report = self.read_report()
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["checks"][0]["status"], "failed")
+        self.assertIn("application font is invalid", report["errors"][0]["error"])
+        self.assertEqual(report["qt"]["application_font_family"], self.app.font().family())
+        self.assertEqual(report["qt"]["backend"], self.app.platformName())
+        self.assertTrue(report["qt"]["qt_version"])
+        self.assertTrue(report["qt"]["pyqt_version"])
+        self.assertEqual(report["screenshots"], [])
+        raw_font.glyphIndexesForString.assert_not_called()
+
+    def test_valid_font_with_missing_ascii_glyphs_cannot_pass(self):
+        from dndgm4.packaged_smoke import run_packaged_smoke
+        raw_font = Mock()
+        raw_font.isValid.return_value = True
+        # A font object alone is insufficient: one missing non-space glyph
+        # must reject the report even when every other ASCII glyph resolves.
+        glyphs = [23] * len("D&D Game Manager 4")
+        glyphs[1] = 0
+        raw_font.glyphIndexesForString.return_value = glyphs
+        with patch("PyQt6.QtGui.QRawFont.fromFont", return_value=raw_font):
+            self.assertEqual(run_packaged_smoke(self.report_path), 1)
+        report = self.read_report()
+        self.assertEqual(report["status"], "failed")
+        self.assertIn("missing ASCII title glyphs", report["errors"][0]["error"])
+        self.assertEqual(report["screenshots"], [])
+        raw_font.glyphIndexesForString.assert_called_once_with("D&D Game Manager 4")
 
     def test_restore_failure_cannot_be_reported_as_a_pass(self):
         from dndgm4.packaged_smoke import run_packaged_smoke

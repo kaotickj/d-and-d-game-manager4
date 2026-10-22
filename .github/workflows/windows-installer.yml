@@ -18,6 +18,8 @@ concurrency:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      QT_QPA_FONTDIR: C:\Windows\Fonts
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
@@ -65,7 +67,7 @@ jobs:
       - name: Exercise bundled app, silent installation and reinstall
         shell: pwsh
         env:
-          QT_QPA_PLATFORM: offscreen
+          QT_QPA_PLATFORM: windows
         run: ./build/windows_acceptance.ps1
 
       - name: Package portable ZIP
