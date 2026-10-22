@@ -18,6 +18,7 @@ package = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(package)
 
 
+@unittest.skipUnless(sys.platform.startswith("linux"), "Linux packaging requires POSIX filesystem semantics")
 class LinuxPackageTests(unittest.TestCase):
     def setUp(self):
         self.temp = TemporaryDirectory()
