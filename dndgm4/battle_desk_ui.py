@@ -1,12 +1,14 @@
 """Additional battle desk, designed to coexist with the existing v0.8 window."""
 from __future__ import annotations
 
+import sqlite3
+
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QFormLayout, QGridLayout, QGroupBox,
     QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
-    QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QScrollArea,
     QAbstractItemView
 )
 
@@ -130,7 +132,10 @@ class CombatDeskDialog(QDialog):
 
     def page(self, name):
         page = QWidget()
-        self.tabs.addTab(page, name)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(page)
+        self.tabs.addTab(scroll, name)
         form = QVBoxLayout(page)
         form.setContentsMargins(12, 12, 12, 12)
         return form
@@ -229,6 +234,14 @@ class CombatDeskDialog(QDialog):
         fields.addWidget(QLabel("GM notes"), 3, 0)
         fields.addWidget(self.effect_notes, 3, 1, 1, 3)
         page.addLayout(fields)
+        supported = QHBoxLayout()
+        from .spell_effects import CATALOG
+        self.supported_spell = QComboBox()
+        self.supported_spell.addItems(list(CATALOG))
+        self.supported_spell.setAccessibleName("Supported spell mechanics to review")
+        supported.addWidget(self.supported_spell)
+        supported.addWidget(self.button("Review Supported Spell Effect…", self.add_supported_effect))
+        page.addLayout(supported)
         self.effect_table = QTableWidget(0, 5)
         self.effect_table.setHorizontalHeaderLabels(
             ["Effect", "Target", "Initiative anchor", "Rounds remaining", "Notes"])
@@ -300,6 +313,27 @@ class CombatDeskDialog(QDialog):
             QMessageBox.information(self, "Select effect", str(exc))
             return
         self.host._run(lambda: self.host.battle.adjust_effect(uid, self.remaining.value()))
+
+    def add_supported_effect(self):
+        from .spell_effects import CATALOG
+        spell = self.supported_spell.currentText()
+        target = self.effect_target.currentData()
+        if not target:
+            QMessageBox.information(self, "Select a target", "Choose one explicit recipient. Apply area effects separately to reviewed recipients.")
+            return
+        try:
+            recipient = self.host.battle.get(target).name
+        except ValueError as exc:
+            QMessageBox.warning(self, "Review spell recipient", str(exc))
+            return
+        text = (f"Apply {spell} to {recipient} using the selected duration and initiative anchor? "
+                "This creates a supported effect for reviewed roll suggestions. Spell slots and actions remain separate explicit commands.")
+        if not self._confirm_calculation("Review supported spell", text, CATALOG[spell]):
+            return
+        self.host._run(lambda: self.host.battle.add_effect(
+            spell, target_id=target, anchor_id=self.effect_anchor.currentData() or "",
+            duration=self.effect_duration.value(), unit=self.effect_unit.currentText(),
+            notes=self.effect_notes.text(), mechanics={"version": 1, "spell": spell}))
 
     def cancel_effect(self):
         try:
@@ -388,6 +422,24 @@ class CombatDeskDialog(QDialog):
             grid.addWidget(widget, i//2, (i%2)*2+1)
         page.addLayout(grid)
         page.addWidget(self.apply_damage)
+        page.addWidget(self.button("Review Character Attack Suggestion…", self.review_character_attack))
+        self._attack_suggestion = None
+        for field in (self.attack_bonus, self.attack_damage, self.attack_threat, self.attack_mult):
+            signal = field.currentIndexChanged if isinstance(field, QComboBox) else field.textChanged if isinstance(field, QLineEdit) else field.valueChanged
+            signal.connect(self._clear_attack_suggestion)
+        target_review = QHBoxLayout()
+        self.defense_kind = QComboBox()
+        for label, key in (("Normal AC", "ac"), ("Touch AC", "touch_ac"), ("Flat-footed AC", "flat_footed_ac")):
+            self.defense_kind.addItem(label, key)
+        target_review.addWidget(self.defense_kind)
+        target_review.addWidget(self.button("Review Target Defense…", self.review_target_defense))
+        self.use_reviewed_defense = QCheckBox("Use reviewed AC for this roll")
+        self.use_reviewed_defense.setEnabled(False)
+        target_review.addWidget(self.use_reviewed_defense)
+        self._target_suggestion = None
+        self.attack_target.currentIndexChanged.connect(self._clear_target_suggestion)
+        self.defense_kind.currentIndexChanged.connect(self._clear_target_suggestion)
+        page.addLayout(target_review)
         page.addWidget(self.button("Roll Attack / Resolve", self.resolve_attack))
         self.attack_result = QLabel("Result appears in the combat log.")
         self.attack_result.setWordWrap(True)
@@ -403,9 +455,88 @@ class CombatDeskDialog(QDialog):
         form.addRow("Type", self.save_kind)
         form.addRow("Total modifier", self.save_mod)
         form.addRow("DC", self.save_dc)
+        self.fear_save = QCheckBox("This saving throw is against fear (review Bless bonus)")
+        form.addRow(self.fear_save)
+        self._save_suggestion = None
+        self.save_mod.valueChanged.connect(self._clear_save_suggestion)
+        form.addRow(self.button("Review Character Save Suggestion…", self.review_character_save))
         form.addRow(self.button("Roll Saving Throw / Check", self.resolve_save))
         page.addWidget(group)
         page.addStretch()
+
+    def _clear_attack_suggestion(self, *args):
+        self._attack_suggestion = None
+
+    def _clear_save_suggestion(self, *args):
+        self._save_suggestion = None
+
+    def _clear_target_suggestion(self, *args):
+        self._target_suggestion = None
+        self.use_reviewed_defense.setChecked(False)
+        self.use_reviewed_defense.setEnabled(False)
+
+    def _loadout_stats(self, uid):
+        from .equipment_rules import read_loadout, effective_stats
+        from .spell_effects import preview_effects
+        fighter = self.host.battle.get(uid)
+        record = self.host.library.get(fighter.source_id) if fighter.source_id else None
+        if record is None:
+            raise ValueError("This combatant has no saved character source. Enter manual modifiers after DM review.")
+        profile = read_loadout(record)
+        if profile is None:
+            raise ValueError("Review and save this character's equipment calculation from the Compendium first.")
+        return preview_effects(effective_stats(record, profile), self.host.battle.effects, uid)
+
+    def _confirm_calculation(self, title, text, details):
+        box = QMessageBox(QMessageBox.Icon.Question, title, text,
+                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, self)
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        box.setDetailedText("\n".join(f"{key}: {value}" for key, value in details.items()))
+        return box.exec() == QMessageBox.StandardButton.Yes
+
+    def review_character_attack(self):
+        try:
+            uid = self.attack_actor.currentData()
+            stats = self._loadout_stats(uid)
+            if stats["attack_bonus"] is None:
+                raise ValueError("Confirm equipment proficiency in the loadout review first.")
+            if not self._confirm_calculation("Review attack suggestion",
+                    "Copy this supported character attack calculation into the roll controls? Review temporary conditions, range and action choices separately.", stats):
+                return
+            self.attack_bonus.setValue(stats["attack_bonus"])
+            self.attack_damage.setText(stats["damage_expression"])
+            self.attack_threat.setValue(stats["threat_min"])
+            self.attack_mult.setValue(stats["multiplier"])
+            self._attack_suggestion = (uid, stats)
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Character suggestion unavailable", str(exc))
+
+    def review_target_defense(self):
+        try:
+            uid = self.attack_target.currentData()
+            stats = self._loadout_stats(uid)
+            key = self.defense_kind.currentData()
+            if self._confirm_calculation("Review target defense",
+                    f"Use {self.defense_kind.currentText()} {stats[key]} for this roll? Saved encounter AC stays {self.host.battle.get(uid).ac}. Review circumstances and supported-rule limits.", stats):
+                self._target_suggestion = (uid, key, stats)
+                self.use_reviewed_defense.setEnabled(True)
+                self.use_reviewed_defense.setChecked(True)
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Character defense unavailable", str(exc))
+
+    def review_character_save(self):
+        try:
+            uid, kind = self.save_actor.currentData(), self.save_kind.currentText()
+            stats = self._loadout_stats(uid)
+            if kind not in stats["saves"]:
+                raise ValueError("Only Fortitude, Reflex and Will suggestions are supported. Enter checks manually.")
+            bonus = stats["saves"][kind] + (stats.get("fear_save_bonus", 0) if self.fear_save.isChecked() else 0)
+            if self._confirm_calculation("Review saving throw suggestion", f"Use {kind} modifier {bonus:+d}? Review circumstances and other temporary modifiers.", stats):
+                self.save_mod.setValue(bonus)
+                self._save_suggestion = (uid, kind, self.fear_save.isChecked(), stats)
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Character save unavailable", str(exc))
 
     def resolve_attack(self):
         actor = self.attack_actor.currentData()
@@ -413,13 +544,27 @@ class CombatDeskDialog(QDialog):
         if not actor or not target:
             QMessageBox.information(self, "Combatants needed", "Add an attacker and target.")
             return
+        target_ac = None
+        try:
+            if self._attack_suggestion is not None:
+                uid, reviewed = self._attack_suggestion
+                if uid != actor or self._loadout_stats(actor) != reviewed:
+                    raise ValueError("Character or supported effects changed. Review the attack suggestion again or enter manual values.")
+            if self.use_reviewed_defense.isChecked():
+                uid, key, reviewed = self._target_suggestion
+                if uid != target or self._loadout_stats(target) != reviewed:
+                    raise ValueError("Target or supported effects changed. Review target defense again.")
+                target_ac = reviewed[key]
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Review changed modifiers", str(exc))
+            return
         result = self.host._run(lambda: self.host.battle.resolve_attack(
             actor, target, bonus=self.attack_bonus.value(),
             damage=self.attack_damage.text(), situational=self.attack_misc.value(),
             threat_min=self.attack_threat.value(), multiplier=self.attack_mult.value(),
             cover=self.cover.currentData(), concealment=self.conceal.currentData(),
             damage_reduction=self.damage_reduction.value(),
-            apply_damage=self.apply_damage.isChecked()))
+            apply_damage=self.apply_damage.isChecked(), target_ac_override=target_ac))
         if result is not None:
             self.attack_result.setText(result.description)
 
@@ -427,6 +572,15 @@ class CombatDeskDialog(QDialog):
         uid = self.save_actor.currentData()
         if uid:
             kind = self.save_kind.currentText()
+            try:
+                if self._save_suggestion is not None:
+                    actor, save_kind, fear, stats = self._save_suggestion
+                    if (actor != uid or kind != save_kind or fear != self.fear_save.isChecked()
+                            or self._loadout_stats(uid) != stats):
+                        raise ValueError("Character, saving throw or supported effects changed. Review the save suggestion again or enter manual values.")
+            except (ValueError, OSError, sqlite3.Error) as exc:
+                QMessageBox.warning(self, "Review changed modifiers", str(exc))
+                return
             self.host._run(lambda: self.host.battle.resolve_check(
                 uid, kind, self.save_mod.value(), self.save_dc.value(),
                 save=kind not in ("Skill / Ability", "Concentration")))

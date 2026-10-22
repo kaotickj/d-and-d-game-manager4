@@ -261,6 +261,7 @@ class MainWindow(QMainWindow):
         tools_menu.addAction("Review Scribe Proposals…", self.open_reviewed_drafts)
         tools_menu.addAction("Search D&&D 3.5 Rules…", self.open_rules)
         tools_menu.addAction("Manage Selected Character's Spells…", self.open_spell_progression)
+        tools_menu.addAction("Review Selected Character's Equipment…", self.open_equipment_loadout)
         tools_menu.addAction("Multiclass Advancement…", self.open_multiclass)
         from .campaigns import ActiveWorkspace, CampaignRepository, SessionSceneStore
         self.campaigns = CampaignRepository(library.path)
@@ -606,6 +607,18 @@ class MainWindow(QMainWindow):
             self.refresh(select_id=record.id)
         except (OSError, ValueError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Multiclass Advancement unavailable", str(exc))
+
+    def open_equipment_loadout(self):
+        from .equipment_ui import EquipmentLoadoutDialog
+        record = self.selected()
+        if record is None or record.kind not in ("pc", "npc") or record.archived:
+            QMessageBox.information(self, "Select a character", "Select one saved, active PC or NPC to review equipment.")
+            return
+        dialog = EquipmentLoadoutDialog(record, parent=self)
+        while dialog.exec() == QDialog.DialogCode.Accepted:
+            if self.persist(dialog.result_creature, baseline=record):
+                self.statusBar().showMessage("Reviewed loadout saved. Saved AC and existing encounters are unchanged.")
+                break
 
     def backup_campaign_data(self):
         from .recovery import create_backup
@@ -990,6 +1003,8 @@ class MainWindow(QMainWindow):
         details.addWidget(self.spell_progression_button)
         self.multiclass_button = action("Multiclass Advancement…", self.open_multiclass)
         details.addWidget(self.multiclass_button)
+        self.equipment_button = action("Review Equipment & Modifiers…", self.open_equipment_loadout)
+        details.addWidget(self.equipment_button)
         controls = QHBoxLayout()
         self.duplicate_button = action("Duplicate", self.duplicate)
         controls.addWidget(self.duplicate_button)
@@ -1099,6 +1114,8 @@ class MainWindow(QMainWindow):
             record is not None and record.kind in ("pc", "npc")
             and not record.archived and 1 <= record.level < 20)
         self.spell_progression_button.setEnabled(
+            record is not None and record.kind in ("pc", "npc") and not record.archived)
+        self.equipment_button.setEnabled(
             record is not None and record.kind in ("pc", "npc") and not record.archived)
         self.multiclass_button.setEnabled(
             record is not None and record.kind in ("pc", "npc") and not record.archived

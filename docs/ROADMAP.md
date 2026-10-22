@@ -52,6 +52,11 @@ or unmodeled rulings remain explicit DM decisions.
 - Run Session dashboard shares the active party, live scene and combat
   controller, with explicit dice/combat actions and stale-safe quick notes in
   the existing session journal. See [Run Session](RUN_SESSION.md).
+- Reviewed ordinary equipment calculates AC variants, attack/damage and saves
+  from confirmed class levels, proficiency and bounded feat/class benefits.
+  Encoded feats check complete prerequisite chains. Explicitly reviewed Bless,
+  Mage Armor and Shield timers contribute to suggestions with stacking rules;
+  named timers alone do not. See [equipment calculations](EQUIPMENT_CALCULATIONS.md).
 
 - Persistent campaign/session manager, party roster, session status/date, notes
   and reviewed recaps, and isolated saved encounters. Schema v3 adds tables
