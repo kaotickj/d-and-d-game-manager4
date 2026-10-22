@@ -28,7 +28,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e . pyinstaller
 
-      - name: Run storage tests
+      - name: Run domain and Qt tests
         run: python -m unittest discover -s tests -v
 
       - name: Bundle desktop application
@@ -37,7 +37,7 @@ jobs:
           if (!(Test-Path "dist/DnDGameManager4/DnDGameManager4.exe")) { throw "Missing bundled executable" }
           # Prevent release of the broken installation reported by users:
           # dragon_crest.png missing under _internal/dndgm4/assets.
-          foreach ($art in @("dragon_crest.png", "app_banner.jpg", "name_genie_crest.png")) {
+          foreach ($art in @("dragon_crest.png", "app_banner.jpg", "name_genie_crest.png", "checkmark.svg", "chevron_down.svg", "chevron_up.svg")) {
             $required = Join-Path "dist/DnDGameManager4/_internal/dndgm4/assets" $art
             if (!(Test-Path $required)) { throw "Missing packaged artwork: $required" }
           }
@@ -57,6 +57,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
           if (!(Test-Path "dist/DnDGameManager4-Setup.exe")) { throw "Missing installer" }
 
+      - name: Exercise bundled app, silent installation and reinstall
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ./build/windows_acceptance.ps1
+
       - name: Package portable ZIP
         shell: pwsh
         run: Compress-Archive -Path "dist/DnDGameManager4" -DestinationPath "dist/DnDGameManager4-Portable.zip"
@@ -69,6 +75,15 @@ jobs:
             dist/DnDGameManager4-Setup.exe
             dist/DnDGameManager4-Portable.zip
           if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Windows acceptance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DnDGameManager4-Windows-Acceptance-${{ github.run_number }}
+          path: dist/windows-acceptance/
+          if-no-files-found: ignore
           retention-days: 30
 
       - name: Publish tagged release

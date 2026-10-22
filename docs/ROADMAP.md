@@ -29,22 +29,23 @@ as Copyright 2001–2025 Kaosium Interactive, designed and coded by Kaotick Jay.
 - Battle Trakker with independent encounter copies, initiative, surprise rounds, conditions, health, journaling and resumable autosaves.
 - Encounter Command with SRD attack/save/check handling, caster-initiative effect clocks, action budgets and spell slots. Many advanced mechanics remain DM-adjudicated.
 
-## Next development milestones
+## Campaign tools delivered in v0.10.0
 
-- Library protection: SQLite snapshots, complete JSON exports, and validated,
-  transactional JSON import with a preview and skip/copy/replace policies are
-  implemented. SQLite snapshots now include campaign/session scenes and named
-  encounter state. Add guided restore and a bundle for standalone sidecars next.
-- Campaign management: campaigns, parties, session journals/recaps, independent
-  session scenes, named encounters, and persistent workspace selection are
-  implemented. Next expand quest/faction/location tracking and reviewed AI
-  draft handoff into campaign journals.
-- Character advancement: guided single-class levels, editable default builds,
-  numeric core/NPC progression, and reviewed supplemental-class profiles are
-  implemented. Next add structured higher-level spell selection, wider feat and
-  class-feature rules, reusable custom build plans, and multiclass histories.
-- Release readiness: keep storage and Qt suites passing in CI, test packaged
-  Windows builds, and document backup/restore for all local state.
+- Portable complete backups, isolated validated restore, and startup recovery.
+- World/quest/faction/location journals, relationships, player handout assets,
+  explicit public review and separate map/player windows.
+- Calibrated map grids, rulers, encounter-linked tokens, annotations and fog.
+- Campaign calendars, saved weather, event timeline and travel/rest previews.
+- Audited wallets, inventory/containers, weight and reviewed XP application.
+- Per-class higher-level spell plans and reviewed core/NPC multiclass histories.
+- Rules reference search, attributed SRD imports and cited Scribe handoff.
+- Explicit review of AI proposals, source-backed recap drafts and stale-edit
+  protection across the new tools.
+
+See [the play guide](PLAY_GUIDE.md) and [bounded scope](FULL_FEATURE_PLAN.md).
+Further rules coverage includes prestige classes, racial HD/level adjustment,
+more automatic feat/class-feature interactions and equipment effects. Complex
+or unmodeled rulings remain explicit DM decisions.
 
 ## Current development additions
 

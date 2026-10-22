@@ -46,11 +46,15 @@ Every class can additionally record feature choices and DM adjustments in the
 class notes field. These entries are appended to class features with their level
 and preserved in the advancement history; they do not claim rules validation.
 
-The spell catalog currently covers first-level creation. Higher-level spell
-choices and daily slot changes must therefore be entered as reviewed notes.
-These notes are appended to spell notes and the level history, while existing
-structured spellbook data is preserved. Unsupported feats are not silently
-accepted as validated choices.
+Class-granted feats are separate from selectable slots. Ranger Track at first
+level and Endurance at third level do not consume a general feat choice.
+Supported prerequisites include Dodge's Dexterity 13 requirement, using the
+ability scores after any increase selected for that level.
+
+Use [spell management](SPELL_PROGRESSION.md) for class-specific higher-level
+spellbook, known, prepared and domain selections. The level-up form also accepts
+reviewed spell notes and preserves existing structured spell data. Unsupported
+feats are not silently accepted as validated choices.
 
 Weapon Focus additionally gathers a chosen weapon and requires confirmation of
 proficiency in the review. Core/NPC defaults suggest a weapon; manual profiles
@@ -74,6 +78,9 @@ Armor Class is preserved because an armor's Dexterity cap and GM adjustments
 cannot be inferred reliably from the current fields. Review AC when Dexterity
 changes. Base saves are stored separately from ability and situational bonuses.
 
-Multiclass advancement, racial Hit Dice, level adjustment, prestige-class
-qualification, XP requirements, and advancement beyond level 20 require later
-work. Inconsistent saved class or level history is rejected with a review message.
+Use [Multiclass Advancement](MULTICLASS.md) to confirm class history and advance
+core/SRD NPC class combinations. Once class history is established, Level Up
+opens that workflow. Racial Hit Dice, level adjustment, prestige-class
+qualification, automatic XP eligibility and advancement beyond level 20 remain
+DM decisions outside these class-only tools. Inconsistent saved class or level
+history is rejected with a review message.

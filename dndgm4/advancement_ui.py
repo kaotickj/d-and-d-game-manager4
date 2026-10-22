@@ -274,6 +274,9 @@ class LevelUpDialog(QDialog):
         if self.requirements.get("automatic_features"):
             details.addWidget(_label("Class features this level: " + "; ".join(
                 self.requirements["automatic_features"])))
+        if self.requirements.get("automatic_feats"):
+            details.addWidget(_label("Class bonus feats granted this level: " + "; ".join(
+                self.requirements["automatic_feats"])))
         details.addWidget(_label("Additional class features / DM adjustments"))
         self.class_notes = QPlainTextEdit()
         self.class_notes.setMaximumHeight(100)

@@ -243,6 +243,15 @@ class AIWritingDialog(QDialog):
         self.result.setMinimumHeight(150)
         self.result.setAccessibleName("AI-generated editable draft")
         root.addWidget(self.result, 3)
+        self.review_campaign_button = None
+        if kind == "dm" and callable(getattr(parent, "review_scribe_draft", None)):
+            self.review_campaign_button = QPushButton("Review Draft for Campaign…")
+            self.review_campaign_button.setAccessibleName("Review the editable Scribe draft before saving a campaign field")
+            self.review_campaign_button.setEnabled(False)
+            self.review_campaign_button.clicked.connect(self.review_campaign_draft)
+            self.result.textChanged.connect(lambda: self.review_campaign_button.setEnabled(
+                bool(self.result.toPlainText().strip())))
+            root.addWidget(self.review_campaign_button)
 
         self.status = QLabel("Ready. Select a local model and choose Generate.")
         self.status.setObjectName("muted")
@@ -278,6 +287,13 @@ class AIWritingDialog(QDialog):
         model_path = self.preset.currentData()
         if model_path:
             self.model.setText(model_path)
+
+    def review_campaign_draft(self):
+        text = self.result.toPlainText()
+        if text.strip() and self.kind == "dm":
+            callback = getattr(self.parent(), "review_scribe_draft", None)
+            if callable(callback):
+                callback(text, task=self.dm_task.currentData())
 
     def _update_engine(self, *args):
         gguf = self.backend.currentData() == "gguf"

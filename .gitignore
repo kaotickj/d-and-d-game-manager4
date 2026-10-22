@@ -2,7 +2,10 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
-build/
+/build/*
+!/build/windows_launcher.py
+!/build/windows_acceptance.ps1
+!/build/windows_upgrade_fixture.py
 dist/
 *.egg-info/
 .pytest_cache/

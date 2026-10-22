@@ -5,12 +5,26 @@ Modern Python and PyQt6 continuation of **Dungeons & Dragons Game Manager
 (likely 4.03). Original source header credits Copyright 2001–2025
 **Kaosium Interactive**.
 
-## Status: v0.9.0, D&D 3.5 Encounter Command
+## Status: v0.10.0, campaign and session tools
 
 The **Compendium** provides a searchable, persistent SQLite library for player characters, NPCs and monster templates. **Battle Trakker** adds an independent live-combat encounter manager (Ctrl+B), and **Encounter Command** adds SRD 3.5 attacks, checks, saves, condition clocks, action budgets, and spell-slot tracking. Combat never mutates permanent creature templates.
 
-This remains **a partial D&D 3.5 rules engine**, not a full implementation. See
-[the roadmap](docs/ROADMAP.md) for the next milestones.
+The campaign tools now include linked world journals, a calibrated map desk and
+separate player display, fictional calendars and travel, audited treasure/XP and
+inventory, higher-level spell planning, reviewed multiclass advancement, and
+portable backup/restore. The Scribe can pass editable proposals into a review
+before any campaign field is saved. [Run a campaign](docs/PLAY_GUIDE.md) for the
+complete workflow.
+
+Rules lookup searches attributed offline summaries and explicitly imported SRD
+passages, with citations for Scribe context. This is retrieval; no model weights
+were trained. Optional SRD downloads and local AI generation start only through
+explicit controls. See [rules reference](docs/RULES_REFERENCE.md).
+
+Some D&D 3.5 mechanics still require DM review, including racial Hit Dice/level
+adjustment, prestige classes, complex feat interactions, detailed equipment
+modifiers and spell effects. The supported tools and remaining limits are
+recorded in [the completion scope](docs/FULL_FEATURE_PLAN.md).
 
 ## Development: level up and prepare a session
 
@@ -24,9 +38,10 @@ own. Each level stores its dice and choices in the character's level history.
 The eleven core classes and five NPC classes have numeric progressions through
 level 20. Every existing class template has a default training strategy.
 Supplemental and homebrew classes first collect a DM-confirmed progression
-profile, which is remembered for later levels. Spell choices beyond the starter
-catalog, unmodeled class features, and situational effects remain reviewed
-entries. Multiclass advancement is a later milestone. See
+profile, which is remembered for later levels. Higher-level spell plans track each casting class separately, with reviewed
+known/prepared/domain choices. **Multiclass Advancement** confirms class history
+before adding class levels. Unmodeled features and situational effects remain
+reviewed entries. See
 [the advancement rules and scope](docs/ADVANCEMENT_RULES.md).
 
 **The Scribe / DM Assistant** supports scene narration, campaign planning,
@@ -700,4 +715,4 @@ This milestone extends Battle Trakker v0.8.0 (which remains available with Ctrl+
 
 **Limits:** This is not an exhaustive D&D 3.5 combat engine. Spell-specific effects, non-SRD sourcebooks, prestige-class spells, tactical movement and attacks of opportunity, nuanced feat/equipment stacking, precision damage, grappling/trip/disarm and other advanced rulings remain for the DM to review. The optional spell index importer needs a deliberate initial online operation; normal combat tracking needs no internet.
 
-The Windows installer and portable ZIP are built by GitHub Actions. For an up-to-date test build, open the most recent successful **Windows installer** run on the `main` branch and download its `DnDGameManager4-Windows-*` artifact. Installer versions are read from `pyproject.toml`.
+The Windows installer and portable ZIP are built by GitHub Actions. For an up-to-date test build, open the most recent successful **Windows installer** run for the current pull request or `main` branch and download its `DnDGameManager4-Windows-*` artifact. Installer versions are read from `pyproject.toml`.

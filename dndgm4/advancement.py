@@ -10,7 +10,7 @@ from copy import deepcopy
 from dataclasses import replace
 import json
 
-from .build_rules import FIGHTER_BONUS, PREREQUISITES, SIMPLE_FEATS
+from .build_rules import FIGHTER_BONUS, PREREQUISITES, SIMPLE_FEATS, automatic_class_feats
 from .character_sheet import SKILLS, TEMPLATES, NPC_CLASS_TEMPLATES
 from .creation import ABILITIES, CORE_CLASSES
 from .dice import ability_modifier
@@ -275,8 +275,14 @@ def level_up_requirements(creature: Creature, *, profile: dict | None = None) ->
     slots = _feat_slots(name, target)
     scores = {ability: getattr(creature, ability) for ability in ABILITIES}
     old_feats = _owned_feat_names(sheet.get("feats", []))
+    class_grants = automatic_class_feats(name, target)
+    prior_grants = automatic_class_feats(name, creature.level)
+    automatic = [feat for feat in class_grants if feat not in prior_grants and feat not in old_feats]
+    # Older creation sheets can record Track in class features rather than in
+    # feats. It is still already owned, and cannot consume a later selection.
+    available = old_feats | set(class_grants)
     bab = _bab(target, selected["bab_progression"])
-    known = sorted(feat for feat in _SAFE_FEATS | set(_WIZARD_FEATS) if feat not in old_feats and _qualifies(feat, old_feats, scores, bab))
+    known = sorted(feat for feat in _SAFE_FEATS | set(_WIZARD_FEATS) if feat not in available and _qualifies(feat, available, scores, bab))
     reviews = ["Class-feature labels are recorded; situational effects, equipment, and unmodeled prerequisites remain GM-reviewed. Record additional class features or DM adjustments in class notes."]
     if sum(slots.values()):
         reviews.append("Weapon Focus requires choosing a weapon and confirming proficiency; its weapon-specific attack bonus is not automatically applied.")
@@ -293,6 +299,7 @@ def level_up_requirements(creature: Creature, *, profile: dict | None = None) ->
             "choice_requests": requests, "manual_review": reviews,
             "spell_review_required": spell_review, "profile_supported": name in CLASS_PROGRESSION,
             "feat_slots": slots, "feat_options": known,
+            "automatic_feats": automatic,
             "feat_detail_requests": [{"feat": "Weapon Focus", "label": "Weapon for Weapon Focus (confirm proficiency)"}],
             "bonus_feat_options": {"fighter_bonus": sorted(FIGHTER_BONUS), "monk_bonus": list(_MONK_FEATS.get(target, ())) if name == "Monk" else [], "wizard_bonus": list(_WIZARD_FEATS)},
             "automatic_features": _features(name, target, choices),
@@ -328,7 +335,8 @@ def default_level_choices(creature: Creature, *, profile: dict | None = None) ->
     scores = {name: getattr(creature, name) + int(name == ability) for name in ABILITIES}
     points = max(1, requirements["profile"]["skill_points"] + ability_modifier(scores["intelligence"])) + int(creature.race_type == "Human")
     sheet = _sheet(creature)
-    owned = _owned_feat_names(sheet.get("feats", []))
+    owned = (_owned_feat_names(sheet.get("feats", []))
+             | set(automatic_class_feats(creature.character_class, requirements["next_level"])))
     feats = []
     bab = _bab(requirements["next_level"], requirements["profile"]["bab_progression"])
     slots = requirements["feat_slots"]
@@ -416,9 +424,10 @@ def advance_character(creature: Creature, choices: dict) -> Creature:
     if not isinstance(feats, list) or len(feats) != sum(slots.values()) or any(not isinstance(feat, str) or not feat.strip() or len(feat) > 180 for feat in feats):
         raise ValueError(f"Choose exactly {sum(slots.values())} new feat(s) for this level.")
     feats = [feat.strip() for feat in feats]
-    owned = _owned_feat_names(sheet.get("feats", []))
+    owned = (_owned_feat_names(sheet.get("feats", []))
+             | set(automatic_class_feats(creature.character_class, target)))
     if len(set(feats)) != len(feats) or any(feat in owned for feat in feats):
-        raise ValueError("New feats must be distinct and not already on the sheet.")
+        raise ValueError("New feats must be distinct and not already on the sheet or automatically granted by this class.")
     special = set()
     if slots["monk_bonus"]:
         selected = next((feat for feat in feats if feat in requirements["bonus_feat_options"]["monk_bonus"]), None)
@@ -458,7 +467,7 @@ def advance_character(creature: Creature, choices: dict) -> Creature:
     sheet["class"] = creature.character_class
     sheet["class_levels"] = {creature.character_class: target}
     sheet["skills_half_ranks"] = {name: value for name, value in ranks.items() if value}
-    sheet["feats"] = sheet.get("feats", []) + recorded_feats
+    sheet["feats"] = sheet.get("feats", []) + recorded_feats + requirements["automatic_feats"]
     sheet["class_features"] = list(dict.fromkeys(sheet.get("class_features", []) + features))
     sheet["advancement_choices"] = combined_choices
     if spell_notes.strip():
@@ -477,6 +486,7 @@ def advance_character(creature: Creature, choices: dict) -> Creature:
         "hp_gain": hp_gain, "retroactive_constitution_hp": retroactive_hp,
         "ability_increase": ability, "skill_points": points, "skill_increases": dict(increases),
         "feats": recorded_feats, "feat_details": dict(feat_details),
+        "automatic_feats": requirements["automatic_feats"],
         "class_choices": dict(class_choices), "spell_notes": spell_notes.strip(),
         "features": features, "review_ack": True, "profile": profile,
     }]

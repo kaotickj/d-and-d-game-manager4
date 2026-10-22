@@ -83,12 +83,19 @@ class AdvancementIntegrationTests(unittest.TestCase):
         self.assertTrue(self.window.level_up_button.isEnabled())
 
     def test_stale_level_up_draft_does_not_overwrite_new_library_changes(self):
+        from PyQt6.QtWidgets import QDialog
+        drafts = []
         def edit_then_accept(dialog):
+            drafts.append(dialog)
+            if len(drafts) > 1:
+                self.assertIs(drafts[0], dialog)
+                self.assertEqual(dialog.result_creature.level, 2)
+                return QDialog.DialogCode.Rejected
             self.repo.save(replace(self.pc, notes="Edited while draft was open"))
             return self.accept_default_level(dialog)
 
         with patch("dndgm4.advancement_ui.LevelUpDialog.exec", edit_then_accept), \
-                patch("dndgm4.ui.QMessageBox.warning") as warning:
+                patch("dndgm4.ui.QMessageBox.critical") as warning:
             self.window.level_up()
         warning.assert_called_once()
         self.assertIn("changed while", warning.call_args.args[2])

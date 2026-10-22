@@ -2,12 +2,12 @@
 from dataclasses import replace
 import sqlite3
 
-from PyQt6.QtCore import Qt, QItemSelectionModel
+from PyQt6.QtCore import Qt, QItemSelectionModel, QSettings
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QDialog, QFileDialog, QFormLayout, QFrame, QGridLayout,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
-    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
+    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QInputDialog,
     QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QSizePolicy,
 )
 
@@ -92,7 +92,7 @@ def rule():
     return line
 
 def action(text, callback, role=""):
-    widget = QPushButton(text)
+    widget = QPushButton(text.replace("&", "&&"))
     if role:
         widget.setObjectName(role)
     widget.clicked.connect(callback)
@@ -246,6 +246,21 @@ class MainWindow(QMainWindow):
         library_menu.addAction("Back Up Library…", self.backup_library)
         library_menu.addAction("Export Library as JSON…", self.export_library)
         library_menu.addAction("Import Library from JSON…", self.import_library)
+        library_menu.addSeparator()
+        library_menu.addAction("Create Complete Campaign Backup…", self.backup_campaign_data)
+        library_menu.addAction("Restore Complete Backup…", self.restore_campaign_data)
+        library_menu.addAction("Choose Library for Next Launch…", self.choose_library)
+        tools_menu = self.menuBar().addMenu("Campaign Tools")
+        tools_menu.addAction("Campaigns && Sessions…", self.open_campaigns)
+        tools_menu.addAction("World Desk && Quest Journal…", self.open_world)
+        tools_menu.addAction("Maps && Player View…", self.open_maps)
+        tools_menu.addAction("Campaign Time && Travel…", self.open_campaign_time)
+        tools_menu.addAction("Treasure && XP Ledger…", self.open_resources)
+        tools_menu.addAction("Handout Gallery…", self.open_handouts)
+        tools_menu.addAction("Review Scribe Proposals…", self.open_reviewed_drafts)
+        tools_menu.addAction("Search D&&D 3.5 Rules…", self.open_rules)
+        tools_menu.addAction("Manage Selected Character's Spells…", self.open_spell_progression)
+        tools_menu.addAction("Multiclass Advancement…", self.open_multiclass)
         from .campaigns import ActiveWorkspace, CampaignRepository, SessionSceneStore
         self.campaigns = CampaignRepository(library.path)
         self._workspace_error = ""
@@ -458,6 +473,197 @@ class MainWindow(QMainWindow):
     def backup_library(self):
         self._save_library_file(backup=True)
 
+    def _choose_campaign(self):
+        campaigns = self.campaigns.list_campaigns()
+        if not campaigns:
+            QMessageBox.information(self, "Create a campaign first",
+                                    "Use Campaigns & Sessions to create and save a campaign.")
+            return None
+        labels = [f"{campaign.name}  ·  {campaign.id[:8]}" for campaign in campaigns]
+        active = next((i for i, campaign in enumerate(campaigns)
+                       if campaign.id == self.workspace.campaign_id), 0)
+        selected, accepted = QInputDialog.getItem(
+            self, "Choose Campaign", "Campaign", labels, active, False)
+        return campaigns[labels.index(selected)].id if accepted else None
+
+    def open_world(self):
+        from .world import WorldRepository
+        from .world_ui import WorldManagerDialog
+        try:
+            campaign_id = self._choose_campaign()
+            if campaign_id is None:
+                return
+            dialog = WorldManagerDialog(WorldRepository(self.library.path), campaign_id,
+                                        library=self.library, parent=self)
+            dialog.context_requested.connect(
+                lambda context: self._open_scribe_with_context(context, task="dm_advice"))
+            dialog.exec()
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "World Desk unavailable", str(exc))
+
+    def open_rules(self):
+        from .rules_reference import RulesRepository
+        from .rules_ui import RulesReferenceDialog
+        try:
+            dialog = RulesReferenceDialog(
+                RulesRepository(self.library.path.with_name("rules.sqlite3")), self)
+            dialog.context_requested.connect(
+                lambda context: self._open_scribe_with_context(context, task="dm_advice"))
+            dialog.exec()
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Rules Reference unavailable", str(exc))
+
+    def _open_campaign_tool(self, factory, title):
+        try:
+            campaign_id = self._choose_campaign()
+            if campaign_id is not None:
+                factory(campaign_id).exec()
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, title, str(exc))
+
+    def open_maps(self):
+        from .map_ui import MapDeskDialog
+        self._open_campaign_tool(
+            lambda identity: MapDeskDialog(self.library, identity, parent=self), "Maps unavailable")
+
+    def open_campaign_time(self):
+        from .time_ui import CampaignTimeDialog
+        self._open_campaign_tool(
+            lambda identity: CampaignTimeDialog(self.library.path, identity, parent=self),
+            "Campaign Time unavailable")
+
+    def open_resources(self):
+        from .resources_ui import ResourcesDialog
+        def open_dialog(identity):
+            dialog = ResourcesDialog(self.library.path, identity, parent=self)
+            dialog.character_changed.connect(lambda record_id: self.refresh(select_id=record_id))
+            return dialog
+        self._open_campaign_tool(
+            open_dialog,
+            "Resource Ledger unavailable")
+
+    def open_reviewed_drafts(self):
+        from .reviewed_drafts_ui import ReviewedDraftsDialog
+        self._open_campaign_tool(
+            lambda identity: ReviewedDraftsDialog(self.library.path, identity, parent=self),
+            "Proposal Review unavailable")
+
+    def open_handouts(self):
+        from .handouts_ui import HandoutGalleryDialog
+        self._open_campaign_tool(
+            lambda identity: HandoutGalleryDialog(self.library, identity, parent=self),
+            "Handout Gallery unavailable")
+
+    def review_scribe_draft(self, text, *, task="session_plan"):
+        from .reviewed_drafts_ui import ReviewedDraftsDialog
+        try:
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError("Write or generate a Scribe draft before reviewing it.")
+            campaign_id = self.workspace.campaign_id or self._choose_campaign()
+            if campaign_id is None:
+                return
+            self._flush_workspace()
+            session_id = (self.workspace.session_id
+                          if campaign_id == self.workspace.campaign_id else None)
+            dialog = ReviewedDraftsDialog(self.library.path, campaign_id, parent=self)
+            if dialog.load_scribe_draft(text, task=task, session_id=session_id):
+                dialog.exec()
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Draft not loaded", str(exc))
+
+    def open_spell_progression(self):
+        from .spell_progression_ui import SpellProgressionDialog
+        record = self.selected()
+        if record is None:
+            QMessageBox.information(self, "Select a character", "Select one saved character to manage spells.")
+            return
+        try:
+            SpellProgressionDialog(self.library, record.id, parent=self).exec()
+            self.refresh(select_id=record.id)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Spell Management unavailable", str(exc))
+
+    def open_multiclass(self):
+        from .multiclass_ui import MulticlassDialog
+        record = self.selected()
+        if record is None:
+            QMessageBox.information(self, "Select a character", "Select one saved character to advance.")
+            return
+        try:
+            MulticlassDialog(self.library, record.id, parent=self).exec()
+            self.refresh(select_id=record.id)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Multiclass Advancement unavailable", str(exc))
+
+    def backup_campaign_data(self):
+        from .recovery import create_backup
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Complete Campaign Backup", "campaign-backup.dndbackup",
+            "D&D campaign backup (*.dndbackup)")
+        if not filename:
+            return
+        try:
+            self._flush_workspace()
+            manifest = create_backup(self.library, filename)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Backup not saved", str(exc))
+            return
+        self.statusBar().showMessage(f"Complete backup saved · {len(manifest['files'])} files · {filename}")
+
+    def restore_campaign_data(self):
+        from pathlib import Path
+        from .recovery import inspect_backup, restore_backup
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Restore Complete Backup", "", "D&D campaign backup (*.dndbackup);;ZIP archives (*.zip)")
+        if not filename:
+            return
+        try:
+            manifest = inspect_backup(filename)
+            choice = QMessageBox.question(
+                self, "Review Backup",
+                f"Backup created: {manifest.get('created_at', 'unknown')}\n"
+                f"Files: {len(manifest['files'])}\n\n"
+                "Restore into a new folder? The current library will be preserved.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel)
+            if choice != QMessageBox.StandardButton.Yes:
+                return
+            folder, _ = QFileDialog.getSaveFileName(
+                self, "Name a New Recovery Folder", str(Path(filename).with_suffix("")) + "-restored", "Folders (*)")
+            if not folder:
+                return
+            restored_path = restore_backup(filename, folder)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Backup not restored", str(exc))
+            return
+        self._offer_library_on_restart(restored_path)
+
+    def choose_library(self):
+        from .recovery import _check_database
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Choose Library for Next Launch", "", "SQLite library (*.sqlite3)")
+        if not filename:
+            return
+        try:
+            from pathlib import Path
+            _check_database(Path(filename).resolve(), library=True)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Library not selected", str(exc))
+            return
+        self._offer_library_on_restart(filename)
+
+    def _offer_library_on_restart(self, path):
+        from pathlib import Path
+        choice = QMessageBox.question(
+            self, "Library Ready",
+            f"Library available at:\n{path}\n\nUse this library the next time the application starts? "
+            "Save any open drafts, then close and reopen the app.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if choice == QMessageBox.StandardButton.Yes:
+            QSettings("Kaotick Jay", "DnDGameManager4").setValue("library/path", str(Path(path).resolve()))
+            self.statusBar().showMessage(f"Next launch will use · {path}")
+
     def export_library(self):
         self._save_library_file(backup=False)
 
@@ -550,6 +756,13 @@ class MainWindow(QMainWindow):
         layout.addWidget(rule())
         layout.addWidget(caption("THE GAME MASTER'S TOOLS", "eyebrow"))
         layout.addWidget(action("Campaigns & Sessions", self.open_campaigns))
+        layout.addWidget(action("World Desk  /  Quests & Handouts", self.open_world))
+        layout.addWidget(action("Maps  /  Grid, Tokens & Player View", self.open_maps))
+        layout.addWidget(action("Campaign Time & Travel", self.open_campaign_time))
+        layout.addWidget(action("Treasure & XP Ledger", self.open_resources))
+        layout.addWidget(action("Handout Gallery", self.open_handouts))
+        layout.addWidget(action("Review Scribe Proposals", self.open_reviewed_drafts))
+        layout.addWidget(action("Search D&D 3.5 Rules", self.open_rules))
         layout.addWidget(action("Add Campaign Party to Scene", self.add_party_to_scene))
         dice_button = action("Roll Dice  /  Dice Eliminator", self.open_dice, "primaryButton")
         dice_button.setAccessibleName("Open the Dice Eliminator")
@@ -760,6 +973,10 @@ class MainWindow(QMainWindow):
         self.level_up_button = action("Level Up…", self.level_up)
         self.level_up_button.setAccessibleName("Roll hit points and choose character level-up options")
         details.addWidget(self.level_up_button)
+        self.spell_progression_button = action("Spells & Spell Slots…", self.open_spell_progression)
+        details.addWidget(self.spell_progression_button)
+        self.multiclass_button = action("Multiclass Advancement…", self.open_multiclass)
+        details.addWidget(self.multiclass_button)
         controls = QHBoxLayout()
         self.duplicate_button = action("Duplicate", self.duplicate)
         controls.addWidget(self.duplicate_button)
@@ -868,6 +1085,11 @@ class MainWindow(QMainWindow):
         self.level_up_button.setEnabled(
             record is not None and record.kind in ("pc", "npc")
             and not record.archived and 1 <= record.level < 20)
+        self.spell_progression_button.setEnabled(
+            record is not None and record.kind in ("pc", "npc") and not record.archived)
+        self.multiclass_button.setEnabled(
+            record is not None and record.kind in ("pc", "npc") and not record.archived
+            and 1 <= record.level < 20)
         self.add_scene_button.setEnabled(bool(selection))
         self.load_selected_button.setEnabled(bool(selection))
         self.send_battle_button.setEnabled(bool(selection))
@@ -979,14 +1201,16 @@ class MainWindow(QMainWindow):
             self.notes_preview.appendPlainText("\n" + "\n".join(entries))
         self.archive_button.setText("Restore" if record.archived else "Archive")
 
-    def persist(self, record):
+    def persist(self, record, *, baseline=None):
         try:
-            saved = self.library.save(record)
+            saved = (self.library.save(record) if baseline is None else
+                     self.library.save_if_unchanged(record, baseline))
         except Exception as error:
             QMessageBox.critical(self, "Save failed", str(error))
-            return
+            return False
         self.refresh(select_id=saved.id)
         self.statusBar().showMessage(f"Saved {saved.name}  ·  {self.library.path}")
+        return True
 
     def open_names(self):
         """Standalone Name Genie, accessible even when no records exist."""
@@ -1153,6 +1377,11 @@ class MainWindow(QMainWindow):
         if record is None:
             return
         try:
+            import json
+            sheet = json.loads(record.sheet_json or "{}")
+            if "class_levels" in sheet or "multiclass_baseline" in sheet:
+                self.open_multiclass()
+                return
             profile = None
             if needs_progression_profile(record):
                 profile_dialog = ProgressionProfileDialog(record, self)
@@ -1160,12 +1389,9 @@ class MainWindow(QMainWindow):
                     return
                 profile = profile_dialog.result_profile
             dialog = LevelUpDialog(record, self, profile=profile)
-            if dialog.exec() == QDialog.DialogCode.Accepted and dialog.result_creature is not None:
-                current = self.library.get(record.id)
-                if current != record:
-                    raise ValueError("This character changed while the level-up draft was open. "
-                                     "Reopen Level Up to use the current sheet.")
-                self.persist(dialog.result_creature)
+            while dialog.exec() == QDialog.DialogCode.Accepted and dialog.result_creature is not None:
+                if self.persist(dialog.result_creature, baseline=record):
+                    break
         except (ValueError, TypeError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Unable to level up", str(exc))
 
@@ -1240,8 +1466,9 @@ class MainWindow(QMainWindow):
             dialog = MonsterCreatorDialog(self)
         else:
             raise ValueError("Unknown record type.")
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.persist(dialog.result_creature)
+        while dialog.exec() == QDialog.DialogCode.Accepted:
+            if self.persist(dialog.result_creature):
+                break
 
     def edit(self, *args):
         record = self.selected()
@@ -1251,6 +1478,8 @@ class MainWindow(QMainWindow):
             if (record.kind in ("pc", "npc") and record.sheet_json
                     and record.level == 1):
                 dialog = CharacterCreatorDialog(self, creature=record)
+                if dialog._original_sheet_error:
+                    raise ValueError(dialog._original_sheet_error)
             elif record.kind == "monster" and record.sheet_json:
                 import json
                 structure = json.loads(record.sheet_json)
@@ -1266,8 +1495,9 @@ class MainWindow(QMainWindow):
                 "could not be opened. The saved record has not been changed.\n\n"
                 + str(exc))
             return
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.persist(dialog.result_creature)
+        while dialog.exec() == QDialog.DialogCode.Accepted:
+            if self.persist(dialog.result_creature, baseline=record):
+                break
 
     def duplicate(self, *args):
         record = self.selected()

@@ -298,8 +298,8 @@ class CampaignStorageTests(unittest.TestCase):
         original_repo = CreatureRepository(path)
         original = original_repo.save(Creature(name="Old hero", notes="Old notes", archived=True))
         with closing(sqlite3.connect(path)) as db:
-            for table in ("workspace", "campaign_members", "encounters", "sessions", "campaigns"):
-                db.execute("DROP TABLE " + table)
+            for (table,) in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('creatures','sqlite_sequence')").fetchall():
+                db.execute('DROP TABLE "' + table.replace('"', '""') + '"')
             db.execute("PRAGMA user_version=2")
             db.commit()
         sidecar = path.with_name("battle_trakker.json")
@@ -318,8 +318,8 @@ class CampaignStorageTests(unittest.TestCase):
         old = CreatureRepository(path)
         saved = old.save(Creature(name="Keep this hero"))
         with closing(sqlite3.connect(path)) as db:
-            for table in ("workspace", "campaign_members", "encounters", "sessions", "campaigns"):
-                db.execute("DROP TABLE " + table)
+            for (table,) in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('creatures','sqlite_sequence')").fetchall():
+                db.execute('DROP TABLE "' + table.replace('"', '""') + '"')
             db.execute("PRAGMA user_version=2")
             db.commit()
         connect = sqlite3.connect

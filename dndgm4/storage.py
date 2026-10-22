@@ -17,7 +17,7 @@ from .models import Creature, KINDS
 if TYPE_CHECKING:
     from .library_transfer import ImportSummary
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 6
 WRITE_COLUMNS = (
     "name", "kind", "race_type", "character_class", "level",
     "challenge_rating", "armor_class", "max_hit_points",
@@ -55,7 +55,7 @@ def validate(creature: Creature) -> None:
         import json
         try:
             sheet = json.loads(creature.sheet_json)
-        except (ValueError, TypeError) as exc:
+        except (ValueError, TypeError, RecursionError) as exc:
             raise ValueError("Character sheet must contain valid JSON.") from exc
         if not isinstance(sheet, dict):
             raise ValueError("Character sheet must be an object.")
@@ -263,6 +263,109 @@ class CreatureRepository:
                     if statement.strip():
                         db.execute(statement)
 
+            if version < 4:
+                if not db.in_transaction:
+                    db.execute("BEGIN IMMEDIATE")
+                statements = """
+                    CREATE TABLE world_records (
+                        id TEXT PRIMARY KEY,
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        kind TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'active',
+                        summary TEXT NOT NULL DEFAULT '',
+                        dm_notes TEXT NOT NULL DEFAULT '',
+                        details_json TEXT NOT NULL DEFAULT '{}',
+                        archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN(0,1)),
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX idx_world_campaign_kind
+                        ON world_records(campaign_id,kind,archived);
+                    CREATE INDEX idx_world_campaign_name
+                        ON world_records(campaign_id,name COLLATE NOCASE);
+                    CREATE TABLE world_links (
+                        id TEXT PRIMARY KEY,
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        source_id TEXT NOT NULL REFERENCES world_records(id),
+                        target_id TEXT NOT NULL REFERENCES world_records(id),
+                        relation TEXT NOT NULL,
+                        notes TEXT NOT NULL DEFAULT '',
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX idx_world_links_campaign ON world_links(campaign_id);
+                    PRAGMA user_version = 4;
+                """
+                for statement in statements.split(";"):
+                    if statement.strip():
+                        db.execute(statement)
+
+            if version < 5:
+                if not db.in_transaction:
+                    db.execute("BEGIN IMMEDIATE")
+                statements = """
+                    CREATE TABLE maps (
+                        id TEXT PRIMARY KEY,
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        title TEXT NOT NULL,
+                        image_path TEXT NOT NULL,
+                        state_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX maps_campaign ON maps(campaign_id,title COLLATE NOCASE);
+                    CREATE TABLE campaign_clock (
+                        campaign_id TEXT PRIMARY KEY REFERENCES campaigns(id),
+                        minutes INTEGER NOT NULL DEFAULT 0 CHECK(minutes >= 0),
+                        calendar_name TEXT NOT NULL DEFAULT 'Campaign calendar',
+                        days_per_month INTEGER NOT NULL DEFAULT 30,
+                        months_per_year INTEGER NOT NULL DEFAULT 12
+                    );
+                    CREATE TABLE time_changes (
+                        id TEXT PRIMARY KEY,
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        before_minutes INTEGER NOT NULL,
+                        after_minutes INTEGER NOT NULL,
+                        reason TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE resource_operations (
+                        id TEXT PRIMARY KEY,
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        payload_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE resource_ledger (
+                        id TEXT PRIMARY KEY,
+                        operation_id TEXT NOT NULL REFERENCES resource_operations(id),
+                        campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+                        account_id TEXT NOT NULL,
+                        cp_delta INTEGER NOT NULL,
+                        xp_delta INTEGER NOT NULL,
+                        reason TEXT NOT NULL,
+                        session_id TEXT REFERENCES sessions(id),
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(operation_id,account_id)
+                    );
+                    CREATE INDEX resource_ledger_campaign ON resource_ledger(campaign_id,account_id);
+                    PRAGMA user_version = 5;
+                """
+                for statement in statements.split(";"):
+                    if statement.strip():
+                        db.execute(statement)
+
+            if version < 6:
+                if not db.in_transaction:
+                    db.execute("BEGIN IMMEDIATE")
+                from .campaign_time import initialize_schema
+                from .resources import ensure_schema
+                from .handouts import ensure_schema as ensure_handouts
+                initialize_schema(db)
+                ensure_schema(db)
+                ensure_handouts(db)
+                db.execute("PRAGMA user_version = 6")
+
     @staticmethod
     def _from_row(row: sqlite3.Row) -> Creature:
         values = {field.name: row[field.name] for field in fields(Creature)}
@@ -335,3 +438,26 @@ class CreatureRepository:
                 (int(archived), record_id),
             )
             return cursor.rowcount > 0
+
+    def save_if_unchanged(self, creature: Creature, baseline: Creature) -> Creature:
+        """Save a reviewed edit only while its complete saved baseline still matches."""
+        if not isinstance(creature, Creature) or not isinstance(baseline, Creature):
+            raise ValueError("Choose the saved record that this edit was opened from.")
+        validate(creature)
+        if not baseline.id or creature.id != baseline.id:
+            raise ValueError("The edited record must match its original saved character.")
+        if any(getattr(creature, field) != getattr(baseline, field)
+               for field in ("created_at", "updated_at")):
+            raise ValueError("An edit cannot change the original record timestamps.")
+        values = [getattr(creature, column) for column in WRITE_COLUMNS]
+        values[WRITE_COLUMNS.index("archived")] = int(creature.archived)
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM creatures WHERE id=?", (baseline.id,)).fetchone()
+            if row is None or self._from_row(row) != baseline:
+                raise ValueError("This character changed while the draft was open. "
+                                 "Your draft is still available; cancel and reopen the character "
+                                 "to use its current saved state.")
+            db.execute("UPDATE creatures SET " + ",".join(f"{column}=?" for column in WRITE_COLUMNS) +
+                       ",updated_at=CURRENT_TIMESTAMP WHERE id=?", [*values, baseline.id])
+            return self._from_row(db.execute("SELECT * FROM creatures WHERE id=?", (baseline.id,)).fetchone())
