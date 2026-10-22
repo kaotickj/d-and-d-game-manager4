@@ -29,7 +29,19 @@ as Copyright 2001–2025 Kaosium Interactive, designed and coded by Kaotick Jay.
 - Battle Trakker with independent encounter copies, initiative, surprise rounds, conditions, health, journaling and resumable autosaves.
 - Encounter Command with SRD attack/save/check handling, caster-initiative effect clocks, action budgets and spell slots. Many advanced mechanics remain DM-adjudicated.
 
-## Original MVP limitations (historical, superseded by later milestones)
+## Next development milestones
+
+- Library protection: SQLite snapshots, complete JSON exports, and validated,
+  transactional JSON import with a preview and skip/copy/replace policies are
+  implemented. Extend backup/restore to scene and encounter state next.
+- Campaign management: persistent campaigns, sessions, party membership, and
+  encounters linked to campaigns.
+- Character advancement: multi-level builds, prerequisites, and explicit
+  separation of automated rules from GM overrides.
+- Release readiness: keep storage and Qt suites passing in CI, test packaged
+  Windows builds, and document backup/restore for all local state.
+
+## Historical MVP limitations
 
 This version provides manual entry, searching, editing, duplication, and
 archiving, but not D&D 3.5 character calculations, campaign management,

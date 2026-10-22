@@ -2,15 +2,20 @@
 from __future__ import annotations
 
 import os
+import json
 import sqlite3
 import sys
+import tempfile
 from contextlib import contextmanager
-from dataclasses import fields
+from dataclasses import asdict, fields, replace
 from pathlib import Path
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterable, Iterator
 from uuid import uuid4
 
 from .models import Creature, KINDS
+
+if TYPE_CHECKING:
+    from .library_transfer import ImportSummary
 
 SCHEMA_VERSION = 2
 WRITE_COLUMNS = (
@@ -61,6 +66,87 @@ def validate(creature: Creature) -> None:
 
 
 class CreatureRepository:
+    @contextmanager
+    def _output_path(self, destination: str | Path) -> Iterator[Path]:
+        """Publish complete files atomically; never replace the live database."""
+        target = Path(destination).resolve()
+        if target == self.path.resolve() or (
+            target.exists() and os.path.samefile(target, self.path)
+        ):
+            raise ValueError("Choose a destination other than the live library.")
+        descriptor, temporary = tempfile.mkstemp(dir=target.parent, prefix=".dndgm4-")
+        os.close(descriptor)
+        staging = Path(temporary)
+        try:
+            yield staging
+            os.replace(staging, target)
+        finally:
+            staging.unlink(missing_ok=True)
+
+    def backup(self, destination: str | Path) -> None:
+        """Snapshot the SQLite library, including committed WAL transactions."""
+        with self._output_path(destination) as staging:
+            with self._connection() as source:
+                target = sqlite3.connect(staging)
+                try:
+                    source.backup(target)
+                finally:
+                    target.close()
+
+    def export_json(self, destination: str | Path) -> int:
+        """Export every permanent record, including archives and character sheets."""
+        records = self.list(include_archived=True)
+        payload = {"format": "dndgm4-library", "version": 1,
+                   "creatures": [asdict(record) for record in records]}
+        with self._output_path(destination) as staging:
+            staging.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                               encoding="utf-8")
+        return len(records)
+
+    def preview_import(self, records: Iterable[Creature], *,
+                       duplicates: str = "skip") -> ImportSummary:
+        from .library_transfer import summarize_import, validate_import_records
+        batch = validate_import_records(records)
+        with self._connection() as db:
+            existing = {row[0] for row in db.execute("SELECT id FROM creatures")}
+        return summarize_import(batch, existing, duplicates)
+
+    def import_records(self, records: Iterable[Creature], *,
+                       duplicates: str = "skip") -> ImportSummary:
+        """Commit the validated batch together, using IDs to resolve collisions.
+
+        A write lock covers both conflict detection and insertion. Any validation
+        or database error leaves all existing records unchanged.
+        """
+        from .library_transfer import summarize_import, validate_import_records
+        batch = validate_import_records(records)
+        columns = ("id",) + WRITE_COLUMNS + ("created_at", "updated_at")
+        placeholders = ",".join(["?"] * (1 + len(WRITE_COLUMNS)) + [
+            "COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP)",
+            "COALESCE(NULLIF(?, ''), CURRENT_TIMESTAMP)"])
+        set_clause = ", ".join(f"{column} = excluded.{column}" for column in WRITE_COLUMNS)
+        sql = (f"INSERT INTO creatures ({','.join(columns)}) VALUES ({placeholders}) "
+               f"ON CONFLICT(id) DO UPDATE SET {set_clause}, updated_at = CURRENT_TIMESTAMP")
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            existing = {row[0] for row in db.execute("SELECT id FROM creatures")}
+            summary = summarize_import(batch, existing, duplicates)
+            reserved = existing | {record.id for record in batch}
+            for record in batch:
+                if record.id in existing:
+                    if duplicates == "skip":
+                        continue
+                    if duplicates == "copy":
+                        new_id = str(uuid4())
+                        while new_id in reserved:
+                            new_id = str(uuid4())
+                        reserved.add(new_id)
+                        record = replace(record, id=new_id, created_at="", updated_at="")
+                values = [getattr(record, column) for column in columns]
+                values[columns.index("archived")] = int(record.archived)
+                db.execute(sql, values)
+        return summary
+
     def __init__(self, database_path: str | Path):
         self.path = Path(database_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)

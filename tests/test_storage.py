@@ -4,6 +4,7 @@ from contextlib import closing
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import sqlite3
+import json
 import unittest
 
 from dndgm4.models import Creature
@@ -70,6 +71,47 @@ class CreatureRepositoryTests(unittest.TestCase):
             db.commit()
         with self.assertRaises(RuntimeError):
             CreatureRepository(self.path)
+
+    def test_backup_is_independent_and_preserves_archived_sheets(self):
+        saved = self.repo.save(Creature(name="Élara", archived=True,
+                                       sheet_json='{"level": 4}'))
+        destination = self.path.parent / "backup.sqlite3"
+        self.repo.backup(destination)
+        self.repo.save(replace(saved, name="Changed"))
+        restored = CreatureRepository(destination).get(saved.id)
+        self.assertEqual(restored, saved)
+
+    def test_export_includes_all_records_and_metadata(self):
+        saved = self.repo.save(Creature(name="Élara", archived=True,
+                                       sheet_json='{"level": 4}'))
+        destination = self.path.parent / "export.json"
+        self.assertEqual(self.repo.export_json(destination), 1)
+        payload = json.loads(destination.read_text(encoding="utf-8"))
+        self.assertEqual(payload["format"], "dndgm4-library")
+        self.assertEqual(payload["version"], 1)
+        self.assertEqual(payload["creatures"][0]["id"], saved.id)
+        self.assertEqual(payload["creatures"][0]["sheet_json"], saved.sheet_json)
+        self.assertTrue(payload["creatures"][0]["archived"])
+
+    def test_outputs_cannot_replace_live_database_or_hardlink(self):
+        self.repo.save(Creature(name="Protected"))
+        alias = self.path.parent / "alias.sqlite3"
+        alias.hardlink_to(self.path)
+        for destination in (self.path, alias):
+            for operation in (self.repo.backup, self.repo.export_json):
+                with self.assertRaises(ValueError):
+                    operation(destination)
+        self.assertEqual(self.repo.list()[0].name, "Protected")
+
+    def test_failed_export_preserves_previous_file_and_cleans_staging(self):
+        from unittest.mock import patch
+        destination = self.path.parent / "export.json"
+        destination.write_text("previous", encoding="utf-8")
+        with patch("dndgm4.storage.os.replace", side_effect=OSError("Disk error")):
+            with self.assertRaises(OSError):
+                self.repo.export_json(destination)
+        self.assertEqual(destination.read_text(), "previous")
+        self.assertEqual(list(self.path.parent.glob(".dndgm4-*")), [])
 
 
 if __name__ == "__main__":

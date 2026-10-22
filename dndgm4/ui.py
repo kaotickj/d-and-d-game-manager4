@@ -1,10 +1,11 @@
 """PyQt6 application for permanent character/NPC/monster library records."""
 from dataclasses import replace
+import sqlite3
 
 from PyQt6.QtCore import Qt, QItemSelectionModel
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
-    QApplication, QButtonGroup, QCheckBox, QDialog, QFormLayout, QFrame, QGridLayout,
+    QApplication, QButtonGroup, QCheckBox, QDialog, QFileDialog, QFormLayout, QFrame, QGridLayout,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
     QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
     QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QSizePolicy,
@@ -14,6 +15,8 @@ from . import __version__
 from .artwork import CoverArtLabel, load_artwork, window_icon
 from .models import Creature, KIND_LABELS
 from .storage import CreatureRepository
+from .library_transfer import read_library_export
+from .import_ui import ImportPreviewDialog
 from .name_ui import NamePickerDialog
 from .roll_ui import CharacterCreatorDialog, DiceDialog
 from .monster_ui import MonsterCreatorDialog
@@ -239,6 +242,10 @@ class MainWindow(QMainWindow):
     def __init__(self, library: CreatureRepository):
         super().__init__()
         self.library = library
+        library_menu = self.menuBar().addMenu("Library")
+        library_menu.addAction("Back Up Library…", self.backup_library)
+        library_menu.addAction("Export Library as JSON…", self.export_library)
+        library_menu.addAction("Import Library from JSON…", self.import_library)
         self.scene_store = SceneStore(library.path)
         self._scene_error = ""
         try:
@@ -288,6 +295,50 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=self.open_narrator)
         QShortcut(QKeySequence("Ctrl+B"), self, activated=self.open_battle_trakker)
         self.refresh()
+
+    def backup_library(self):
+        self._save_library_file(backup=True)
+
+    def export_library(self):
+        self._save_library_file(backup=False)
+
+    def import_library(self):
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Import Library from JSON", "", "JSON files (*.json)")
+        if not filename:
+            return
+        try:
+            records = read_library_export(filename)
+            dialog = ImportPreviewDialog(self.library, records, self)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Import Library", str(exc))
+            return
+        result = dialog.result_summary
+        if result is None:
+            return
+        self.refresh()
+        self.statusBar().showMessage(
+            f"Library import complete · {result.added} added, {result.copied} copied, "
+            f"{result.replaced} replaced, {result.skipped} skipped")
+
+    def _save_library_file(self, *, backup):
+        title = "Back Up Library" if backup else "Export Library as JSON"
+        filename, _ = QFileDialog.getSaveFileName(
+            self, title, "library-backup.sqlite3" if backup else "library-export.json",
+            "SQLite database (*.sqlite3)" if backup else "JSON files (*.json)")
+        if not filename:
+            return
+        try:
+            if backup:
+                self.library.backup(filename)
+            else:
+                self.library.export_json(filename)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, title, str(exc))
+            return
+        self.statusBar().showMessage(f"Library {'backup' if backup else 'export'} saved · {filename}")
 
     def setup_sidebar(self, shell):
         sidebar = QFrame()
@@ -680,8 +731,16 @@ class MainWindow(QMainWindow):
             sheet = json.loads(record.sheet_json) if record.sheet_json else {}
         except (ValueError, TypeError):
             sheet = {}
+        if not isinstance(sheet, dict):
+            sheet = {}
         if record.kind == "monster" and sheet.get("monster_type"):
             computed = sheet.get("computed", {})
+            if not isinstance(computed, dict):
+                computed = {}
+            saves = {}
+            for save in ("fort", "ref", "will"):
+                value = computed.get(save, 0)
+                saves[save] = f"{value:+d}" if type(value) is int else "—"
             self.detail.setText(
                 f"Species: {record.race_type or '—'}\n"
                 f"Type: {sheet.get('monster_type', '')}"
@@ -690,9 +749,9 @@ class MainWindow(QMainWindow):
                 f"   ·   CR: {progression}\n"
                 f"AC {record.armor_class}   ·   HP {record.max_hit_points}"
                 f"   ·   BAB +{computed.get('bab', 0)}\n"
-                f"Fort {computed.get('fort', 0):+d}  /  "
-                f"Ref {computed.get('ref', 0):+d}  /  "
-                f"Will {computed.get('will', 0):+d}\n"
+                f"Fort {saves['fort']}  /  "
+                f"Ref {saves['ref']}  /  "
+                f"Will {saves['will']}\n"
                 "Special traits and CR require DM review."
             )
         else:
@@ -702,7 +761,9 @@ class MainWindow(QMainWindow):
                 f"{progress_label}: {progression}\n"
                 f"Armor Class: {record.armor_class}    ·    Hit Points: {record.max_hit_points}"
             )
-        no_score = set(sheet.get("null_abilities", []))
+        null_abilities = sheet.get("null_abilities", [])
+        no_score = ({value for value in null_abilities if isinstance(value, str)}
+                    if isinstance(null_abilities, list) else set())
         for attribute, score in self.stat_values.items():
             score.setText("—" if attribute in no_score else
                           str(getattr(record, attribute)))
@@ -886,20 +947,25 @@ class MainWindow(QMainWindow):
         record = self.selected()
         if record is None:
             return
-        if (record.kind in ("pc", "npc") and record.sheet_json
-                and record.level == 1):
-            dialog = CharacterCreatorDialog(self, creature=record)
-        elif record.kind == "monster" and record.sheet_json:
-            import json
-            try:
+        try:
+            if (record.kind in ("pc", "npc") and record.sheet_json
+                    and record.level == 1):
+                dialog = CharacterCreatorDialog(self, creature=record)
+            elif record.kind == "monster" and record.sheet_json:
+                import json
                 structure = json.loads(record.sheet_json)
-            except ValueError:
-                structure = {}
-            dialog = (MonsterCreatorDialog(self, creature=record)
-                      if structure.get("monster_type") else
-                      CreatureEditor(record, self))
-        else:
-            dialog = CreatureEditor(record, self)
+                dialog = (MonsterCreatorDialog(self, creature=record)
+                          if structure.get("monster_type") else
+                          CreatureEditor(record, self))
+            else:
+                dialog = CreatureEditor(record, self)
+        except (ValueError, TypeError, AttributeError, KeyError, OverflowError) as exc:
+            QMessageBox.warning(
+                self, "Unable to edit record",
+                "The saved character sheet has an unrecognized structure and "
+                "could not be opened. The saved record has not been changed.\n\n"
+                + str(exc))
+            return
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.persist(dialog.result_creature)
 

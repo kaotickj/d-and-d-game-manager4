@@ -32,11 +32,41 @@ The SQLite database is created in the user application data directory,
 
 Back up this file before switching to a future application version.
 
+Use **Library → Back Up Library…** to save a consistent SQLite snapshot while
+the app is running. **Library → Export Library as JSON…** exports all permanent
+PC, NPC, and monster records, including archived records and character sheets.
+Both commands write complete files before replacing an existing destination and
+refuse to overwrite the active database. These files cover the Compendium;
+scene and encounter autosaves are separate and are not included. To restore a
+SQLite backup, close the app, preserve the current database, and copy the backup
+to the database location listed above.
+
+**Library → Import Library from JSON…** opens a preview of a DnDGM4 JSON export.
+Records match by their saved IDs, including archived records; matching names
+alone do not count as duplicates. Choose one policy for matching IDs:
+
+- **Skip existing records** (default) keeps the local version.
+- **Keep both as separate records** adds matching records under fresh IDs,
+  retaining their imported names, sheets, and archived status.
+- **Replace existing records** overwrites the saved fields of matching records,
+  including notes, sheets, and archived status. Local creation dates are retained.
+
+The preview shows counts and each record's action before you click **Import**.
+Cancel leaves the library unchanged. The entire file is validated first, and
+the batch is committed together; a failure rolls back all changes. Import accepts
+version 1 UTF-8 exports up to 32 MiB and 10,000 records. It rejects unknown fields,
+invalid record values, and repeated IDs within the same file. Original IDs and
+timestamps are retained for new records; copies receive new timestamps.
+Legacy `.crs` files and scene/encounter state are not imported by this command.
+
 Run tests without installing Qt:
 
 ```sh
 python -m unittest discover -s tests -v
 ```
+
+After installing the project dependencies, run the same suite with
+`QT_QPA_PLATFORM=offscreen` to include the Qt interface tests on headless Linux.
 
 ## Historical source
 
