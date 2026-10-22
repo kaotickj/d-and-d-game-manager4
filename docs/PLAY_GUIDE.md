@@ -97,7 +97,12 @@ and open **Review Equipment & Modifiers**. Review the calculation before saving
 its profile, then use the Combat Desk's explicit character-suggestion controls.
 Saved manual AC and existing encounter snapshots stay separate.
 
-Detailed workflows: [equipment calculations](EQUIPMENT_CALCULATIONS.md), [Run Session](RUN_SESSION.md), [campaigns](CAMPAIGNS.md), [world completion scope](FULL_FEATURE_PLAN.md),
+Use **Recall Campaign Sources** in Campaign Tools or Scribe to find relevant
+NPCs, quests, recorded notes and rules. Inspect and select sources, then preview
+the complete context. Player-facing recall searches explicit public fields;
+private sources and private planning requests cannot feed player narration.
+
+Detailed workflows: [campaign recall](CAMPAIGN_RECALL.md), [equipment calculations](EQUIPMENT_CALCULATIONS.md), [Run Session](RUN_SESSION.md), [campaigns](CAMPAIGNS.md), [world completion scope](FULL_FEATURE_PLAN.md),
 [maps](MAPS.md), [time](CAMPAIGN_TIME.md), [resources](RESOURCES.md),
 [handout images](HANDOUTS.md), [reviewed drafts](REVIEWED_DRAFTS.md),
 [spells](SPELL_PROGRESSION.md), [multiclass advancement](MULTICLASS.md), and

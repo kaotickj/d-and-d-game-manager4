@@ -761,20 +761,28 @@ class CombatDeskDialog(QDialog):
         battle = self.host.battle
         facts = [
             "D&D 3.5 encounter, use ONLY provided combat facts; do not invent stats.",
-            "Scene: " + battle.scene[:1200],
+            "Scene: " + battle.scene,
             f"Encounter: {battle.title}; round {battle.round}; phase {battle.phase}",
             "Roster: " + "; ".join(
                 f"{f.name} ({f.kind}, HP {f.hp}/{f.max_hp}, AC {f.ac})"
-                for f in battle.fighters[:35]),
+                for f in battle.fighters),
             "Timed effects: " + "; ".join(
-                f"{e['name']} ({e['remaining']} rounds)" for e in battle.effects[:35]),
-            "Recent log:\n" + "\n".join(battle.log[-15:]),
-            "DM request: " + self.narrative_instruction.toPlainText()[:700],
+                f"{e['name']} ({e['remaining']} rounds)" for e in battle.effects),
+            "Last 15 recorded combat log lines:\n" + "\n".join(battle.log[-15:]),
+            "DM request: " + self.narrative_instruction.toPlainText(),
         ]
         context = "\n\n".join(facts)
-        if len(context) > 5800:
-            context = context[:5750] + "\n[Context abbreviated for local model.]"
-        self.ai_dialog = AIWritingDialog(kind="dm", context=context, parent=self)
+        if len(context) > 6000:
+            QMessageBox.warning(self, "Encounter context too large", "The complete selected encounter context exceeds 6,000 characters. Use Campaign Recall to select complete source excerpts; nothing was abbreviated.")
+            return
+        existing = getattr(self, "ai_dialog", None)
+        if existing is not None and existing.worker is not None:
+            QMessageBox.warning(self, "Scribe busy", "Wait for the current request before replacing its sources.")
+            return
+        if existing is None:
+            self.ai_dialog = AIWritingDialog(kind="dm", context=context, parent=self)
+        self.ai_dialog.load_context(context, audience="dm")
+        self.ai_dialog.dm_task.setCurrentIndex(self.ai_dialog.dm_task.findData("dm_advice"))
         self.ai_dialog.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.ai_dialog.show()
         self.ai_dialog.raise_()

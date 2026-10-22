@@ -252,6 +252,7 @@ class MainWindow(QMainWindow):
         library_menu.addAction("Choose Library for Next Launch…", self.choose_library)
         tools_menu = self.menuBar().addMenu("Campaign Tools")
         tools_menu.addAction("Run Session…", self.open_run_session)
+        tools_menu.addAction("Recall Campaign Sources…", self.open_campaign_recall)
         tools_menu.addAction("Campaigns && Sessions…", self.open_campaigns)
         tools_menu.addAction("World Desk && Quest Journal…", self.open_world)
         tools_menu.addAction("Maps && Player View…", self.open_maps)
@@ -441,6 +442,8 @@ class MainWindow(QMainWindow):
 
     def open_campaign_scribe(self, session_id, task="session_plan", *, campaign_id=""):
         from .campaign_context import build_campaign_context, build_campaign_planning_context
+        if task == "dm":
+            return self.open_campaign_recall(session_id=session_id, audience="player")
         if task == "campaign_plan" and not session_id:
             context = build_campaign_planning_context(self.campaigns, self.library, campaign_id)
         else:
@@ -1286,12 +1289,50 @@ class MainWindow(QMainWindow):
             self.scene = editor.result_scene
             self.statusBar().showMessage("Current scene saved locally.")
 
+    def open_campaign_recall(self, *, query="", audience="dm", session_id="", writer=None):
+        from .campaign_recall import search_campaign_memory, build_recall_context
+        from .campaign_recall_ui import CampaignRecallDialog
+        from .rules_reference import RulesRepository
+        from .world import WorldRepository
+        target = session_id or self.workspace.session_id
+        if not target:
+            QMessageBox.information(self, "Select a session", "Open a saved campaign session before recalling campaign sources.")
+            return
+        try:
+            if writer is not None and writer.worker is not None:
+                raise ValueError("Wait for the current Scribe request before replacing sources.")
+            world = WorldRepository(self.library.path, campaigns=self.campaigns)
+            rules_path = self.library.path.with_name("rules.sqlite3")
+            rules = RulesRepository(rules_path, read_only=True) if rules_path.is_file() else None
+            def search(text, *, audience, limit=20):
+                return search_campaign_memory(self.campaigns, self.library, world, rules,
+                                              target, text, audience=audience, limit=limit)
+            def context(hits, *, audience, max_chars=6000):
+                budget = max_chars
+                if (writer is not None and writer.dm_request.text().strip()
+                        and not (audience == "player" and writer.source_audience != "player")):
+                    budget -= len(writer.dm_request.text().strip()) + len("DM REQUEST:\n") + 2
+                return build_recall_context(hits, audience=audience, max_chars=budget)
+            dialog = CampaignRecallDialog(search, context, self, query=query, audience=audience)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            if writer is not None:
+                writer.load_context(dialog.result_context, audience=dialog.result_audience)
+                if dialog.result_audience == "player":
+                    writer.dm_task.setCurrentIndex(writer.dm_task.findData("dm"))
+            else:
+                self._open_scribe_with_context(dialog.result_context,
+                    task="dm" if dialog.result_audience == "player" else "dm_advice",
+                    audience=dialog.result_audience)
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Campaign recall unavailable", str(exc))
+
     def _scribe_scene_context(self, source):
         self._check_scene()
         if source == "scene" and self.workspace.session_id:
             from .campaign_context import build_campaign_context
             return build_campaign_context(self.campaigns, self.library,
-                                          self.workspace.session_id, task="dm")
+                                          self.workspace.session_id, task="dm_advice")
         if source == "selection":
             records = self.selected_records()
             if not records:
@@ -1317,21 +1358,28 @@ class MainWindow(QMainWindow):
             return
         self._open_scribe_with_context(context)
 
-    def _open_scribe_with_context(self, context, *, task=None):
+    def _open_scribe_with_context(self, context, *, task=None, audience="dm"):
         existing = getattr(self, "_narrator_dialog", None)
         if existing is not None:
             # Explicit Load means replace the context, not the generated
             # draft. The draft is always editable and remains intact.
-            existing.context.setPlainText(context)
+            try:
+                existing.load_context(context, audience=audience)
+            except ValueError as exc:
+                QMessageBox.warning(self, "Scribe sources unchanged", str(exc))
+                return
             if task is not None:
                 existing.dm_task.setCurrentIndex(existing.dm_task.findData(task))
+            elif audience == "dm" and existing.dm_task.currentData() == "dm":
+                existing.dm_task.setCurrentIndex(existing.dm_task.findData("dm_advice"))
             existing.show()
             existing.raise_()
             existing.activateWindow()
             return
         writer = AIWritingDialog("dm", context, self)
-        if task is not None:
-            writer.dm_task.setCurrentIndex(writer.dm_task.findData(task))
+        writer.load_context(context, audience=audience)
+        selected_task = task or ("dm" if audience == "player" else "dm_advice")
+        writer.dm_task.setCurrentIndex(writer.dm_task.findData(selected_task))
         writer.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         writer.setWindowModality(Qt.WindowModality.NonModal)
         self._narrator_dialog = writer

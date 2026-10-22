@@ -245,8 +245,10 @@ def _record_values(record):
 class WorldRepository:
     """Campaign-owned world data, sharing the library's transactional database."""
 
-    def __init__(self, database_path: str | Path):
-        self.campaigns = CampaignRepository(database_path)
+    def __init__(self, database_path: str | Path, *, campaigns=None):
+        if campaigns is not None and Path(database_path).resolve() != campaigns.path.resolve():
+            raise ValueError("World records must use the same campaign library.")
+        self.campaigns = campaigns if campaigns is not None else CampaignRepository(database_path)
         self.library = self.campaigns.library
         self.path = self.library.path
 

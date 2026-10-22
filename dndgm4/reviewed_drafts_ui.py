@@ -358,6 +358,7 @@ class ReviewedDraftsDialog(QDialog):
                 self._writer.hide()
                 self._writer.deleteLater()
             self._writer = AIWritingDialog("dm", context, self)
+            self._writer.load_context(context, audience="player" if field in ("summary", "player_text") else "dm")
             task = "recap" if field == "recap" else "session_plan"
             self._writer.dm_task.setCurrentIndex(self._writer.dm_task.findData(task))
             self._writer_binding = (self._baseline.digest, field)

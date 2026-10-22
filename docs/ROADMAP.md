@@ -57,6 +57,10 @@ or unmodeled rulings remain explicit DM decisions.
   Encoded feats check complete prerequisite chains. Explicitly reviewed Bless,
   Mage Armor and Shield timers contribute to suggestions with stacking rules;
   named timers alone do not. See [equipment calculations](EQUIPMENT_CALCULATIONS.md).
+- Campaign Recall retrieves relevant saved evidence with inspectable citations,
+  field digests and source classifications. Public-field filtering happens
+  before matching; stale selections cannot load. Saved private sources and
+  private requests are blocked from player narration. See [campaign recall](CAMPAIGN_RECALL.md).
 
 - Persistent campaign/session manager, party roster, session status/date, notes
   and reviewed recaps, and isolated saved encounters. Schema v3 adds tables
