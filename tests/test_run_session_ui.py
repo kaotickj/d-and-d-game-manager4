@@ -1,12 +1,14 @@
 """Behavioral contracts for the dashboard's shared state and note guard."""
 import copy
+from importlib.util import find_spec
 import os
 import unittest
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from PyQt6.QtWidgets import QApplication, QMessageBox
-from dndgm4.run_session_ui import RunSessionDialog
+if find_spec("PyQt6") is not None:
+    from PyQt6.QtWidgets import QApplication, QMessageBox
+    from dndgm4.run_session_ui import RunSessionDialog
 
 
 def snapshot():
@@ -21,6 +23,7 @@ def snapshot():
                 phase="active", round=1, current_name="Same", combat_log=[])
 
 
+@unittest.skipUnless(find_spec("PyQt6") is not None, "PyQt6 unavailable")
 class RunSessionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
