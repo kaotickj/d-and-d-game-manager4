@@ -6,6 +6,8 @@ venv/
 !/build/windows_launcher.py
 !/build/windows_acceptance.ps1
 !/build/windows_upgrade_fixture.py
+!/build/linux_package.py
+!/build/linux_acceptance.sh
 dist/
 *.egg-info/
 .pytest_cache/
