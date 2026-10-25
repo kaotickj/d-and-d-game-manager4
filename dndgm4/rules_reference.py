@@ -315,10 +315,21 @@ def _approved_url(url: str) -> str:
 
 
 class RulesRepository:
-    def __init__(self, path: str | Path, *, seed: bool = True, enable_fts: bool = True):
+    def __init__(self, path: str | Path, *, seed: bool = True, enable_fts: bool = True,
+                 read_only: bool = False):
+        if type(read_only) is not bool:
+            raise ValueError("Read-only rules access must be true or false.")
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.read_only = read_only
         self.fts_available = False
+        if read_only:
+            # Do not create a missing database, seed summaries, or rebuild an
+            # index merely because campaign recall searches existing rules.
+            with self._connection() as db:
+                db.execute("SELECT id,license_notice FROM rules_documents LIMIT 0")
+                db.execute("SELECT id,document_id,ordinal,text FROM rules_passages LIMIT 0")
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connection() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS rules_documents (
@@ -355,7 +366,8 @@ class RulesRepository:
 
     @contextmanager
     def _connection(self):
-        db = sqlite3.connect(self.path)
+        db = (sqlite3.connect(self.path.resolve().as_uri() + "?mode=ro", uri=True)
+              if self.read_only else sqlite3.connect(self.path))
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
         db.create_function("casefold", 1, lambda value: value.casefold(), deterministic=True)
@@ -366,6 +378,7 @@ class RulesRepository:
             db.close()
 
     def ensure_baseline(self) -> None:
+        self._require_writable()
         sources = {item.key: item for item in SRD_SOURCES}
         for index, (title, key, section, text) in enumerate(_BASELINE, 1):
             source = sources[key]
@@ -380,6 +393,7 @@ class RulesRepository:
                         origin: str = "local-import", source_digest: str = "",
                         license_url: str = "", license_notice: str = "") -> str:
         """Validate, then atomically replace a matching source/section import."""
+        self._require_writable()
         if edition != "3.5":
             raise ValueError("This library accepts D&D 3.5 references only.")
         title = _plain(title, "Title", 200, required=True)
@@ -447,6 +461,7 @@ class RulesRepository:
 
     def fetch_source(self, key: str) -> str:
         """Download one curated SRD section, only when explicitly called by a user."""
+        self._require_writable()
         source = next((item for item in SRD_SOURCES if item.key == key), None)
         if source is None:
             raise ValueError("Choose a listed 3.5 SRD section.")
@@ -485,12 +500,17 @@ class RulesRepository:
         return [RulesDocument(**dict(row)) for row in rows]
 
     def rebuild_index(self) -> None:
+        self._require_writable()
         if self.fts_available:
             with self._connection() as db:
                 db.execute("DELETE FROM rules_fts")
                 db.execute("""INSERT INTO rules_fts(rowid, title, body)
                     SELECT p.id, d.title || ' ' || d.section, p.text
                     FROM rules_passages p JOIN rules_documents d ON d.id=p.document_id""")
+
+    def _require_writable(self):
+        if self.read_only:
+            raise ValueError("This rules library is open read-only for campaign recall.")
 
     @staticmethod
     def _hit(row, terms: list[str]) -> RuleHit:

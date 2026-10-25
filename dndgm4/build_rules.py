@@ -33,6 +33,60 @@ PREREQUISITES = {
     "Weapon Finesse": (None,0,None,1),
     "Weapon Focus": (None,0,None,1),
 }
+
+
+def prerequisite_failures(feat: str, owned: set[str], scores: dict[str, int],
+                          bab: int) -> list[str]:
+    """Review the complete encoded prerequisite chain without changing a sheet.
+
+    Ownership alone does not prove that a legacy prerequisite feat is usable.
+    Same-level selections may be included in ``owned`` by the caller. Class
+    bonus exceptions remain the caller's responsibility. Weapon choice and
+    proficiency are not encoded here and still require DM review.
+
+    SRD: https://www.d20srd.org/srd/feats.htm#prerequisites
+    https://www.d20srd.org/srd/feats.htm#greatCleave
+    https://www.d20srd.org/srd/feats.htm#springAttack
+    https://www.d20srd.org/srd/feats.htm#manyshot
+    Those feats explicitly require the earlier feats in their complete chains.
+    The public four-field table remains compatible with existing callers.
+    """
+    failures = []
+    visiting = set()
+    reviewed = set()
+
+    def add(message):
+        if message not in failures:
+            failures.append(message)
+
+    def review(name):
+        if name in visiting:
+            add(f"{feat}: cyclic prerequisite rules require DM review.")
+            return
+        if name in reviewed:
+            return
+        rule = PREREQUISITES.get(name)
+        if rule is None:
+            if name not in SIMPLE_FEATS:
+                add(f"Unverified feat or prerequisites: {name} (DM review).")
+            return
+        visiting.add(name)
+        attr, minimum, needed, min_bab = rule
+        if attr and scores.get(attr, 0) < minimum:
+            add(f"{feat} requires {attr.title()} {minimum}+.")
+        if bab < min_bab:
+            add(f"{feat} requires base attack bonus +{min_bab}.")
+        if needed:
+            if needed not in owned:
+                add(f"{feat} requires {needed}.")
+            review(needed)
+        visiting.remove(name)
+        reviewed.add(name)
+
+    review(feat)
+    return failures
+
+
 FIGHTER_BONUS = frozenset({
     "Blind-Fight","Cleave","Combat Expertise","Dodge","Great Cleave",
     "Improved Disarm","Improved Trip","Mobility","Point Blank Shot",
@@ -90,19 +144,13 @@ def feat_review(feats: list[str], scores: dict[str,int], *,
     for feat in choices:
         rule=PREREQUISITES.get(feat)
         if rule:
-            attr,minimum,needed,min_bab=rule
-            if attr and scores.get(attr,0)<minimum:
-                msg=f"{feat} requires {attr.title()} {minimum}+."
-                if strict:raise ValueError(msg)
-                warnings.append(msg)
-            if needed and needed not in selected and needed not in info["automatic"]:
-                msg=f"{feat} requires {needed}."
-                if strict:raise ValueError(msg)
-                warnings.append(msg)
-            if bab<min_bab:
-                msg=f"{feat} requires base attack bonus +{min_bab}."
-                if strict:raise ValueError(msg)
-                warnings.append(msg)
+            failures = prerequisite_failures(
+                feat, set(selected) | set(info["automatic"]), scores, bab)
+            if strict and failures:
+                raise ValueError(failures[0])
+            warnings.extend(failures)
+            if feat == "Weapon Focus":
+                warnings.append("Weapon Focus requires a chosen weapon and proficiency confirmation (DM review).")
         elif feat not in SIMPLE_FEATS:
             warnings.append(f"Unverified feat or prerequisites: {feat} (DM review).")
     if class_name=="Fighter" and len(choices)>info["general"]:

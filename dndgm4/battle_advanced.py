@@ -41,9 +41,14 @@ class AdvancedBattle(Battle):
         for item in effects:
             if not isinstance(item, dict):
                 raise ValueError("Invalid effect entry.")
-            if set(item) != {"id", "name", "target_id", "anchor_id",
-                             "remaining", "original", "notes"}:
+            fields = {"id", "name", "target_id", "anchor_id", "remaining", "original", "notes"}
+            if set(item) not in (fields, fields | {"mechanics"}):
                 raise ValueError("Unexpected effect fields.")
+            if "mechanics" in item:
+                from .spell_effects import validate_mechanics
+                validate_mechanics(item["mechanics"])
+                if not item["target_id"]:
+                    raise ValueError("Supported spell mechanics require an explicitly selected target.")
             uid, name = item["id"], item["name"]
             if not isinstance(uid, str) or not uid or uid in seen:
                 raise ValueError("Invalid or duplicate effect ID.")
@@ -141,7 +146,7 @@ class AdvancedBattle(Battle):
         return seconds_as_clock(rounds_to_seconds(self.elapsed_rounds()))
 
     def add_effect(self, name, *, target_id="", anchor_id="", duration=1,
-                   unit="rounds", notes=""):
+                   unit="rounds", notes="", mechanics=None):
         if self.phase not in ("combat", "surprise"):
             raise ValueError("Start combat before timing an effect.")
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
@@ -152,6 +157,11 @@ class AdvancedBattle(Battle):
         caster = self.get(anchor_id)
         if target_id:
             self.get(target_id)
+        if mechanics is not None:
+            from .spell_effects import validate_mechanics
+            mechanics = validate_mechanics(mechanics)
+            if not target_id:
+                raise ValueError("Supported spell mechanics require an explicitly selected target.")
         if len(self.effects) >= 200:
             raise ValueError("Maximum of 200 active effects.")
         total = duration_to_rounds(duration, unit)
@@ -160,6 +170,8 @@ class AdvancedBattle(Battle):
         self.effects.append(dict(id=key, name=name.strip(), target_id=target_id,
                                  anchor_id=anchor_id, original=total,
                                  remaining=total, notes=notes))
+        if mechanics is not None:
+            self.effects[-1]["mechanics"] = mechanics
         self.note(f"Started {name} ({duration} {unit}); "
                   f"expires at {caster.name}'s initiative count.")
         return key
@@ -283,13 +295,17 @@ class AdvancedBattle(Battle):
 
     def resolve_attack(self, attacker_id, target_id, *, bonus, damage, threat_min=20,
                        multiplier=2, cover=0, concealment=0, situational=0,
-                       damage_reduction=0, apply_damage=False, rng=None):
+                       damage_reduction=0, apply_damage=False, rng=None, target_ac_override=None):
         a, b = self.get(attacker_id), self.get(target_id)
-        result = attack(attack_bonus=bonus, target_ac=b.ac, damage=damage,
+        if target_ac_override is not None and (type(target_ac_override) is not int or not -100 <= target_ac_override <= 1000):
+            raise ValueError("Reviewed target AC must be a whole number from -100 to 1000.")
+        result = attack(attack_bonus=bonus, target_ac=b.ac if target_ac_override is None else target_ac_override, damage=damage,
                         threat_min=threat_min, multiplier=multiplier, cover=cover,
                         concealment=concealment, situational=situational,
                         damage_reduction=damage_reduction, rng=rng)
         self._remember()
+        if target_ac_override is not None:
+            self.note(f"DM-reviewed target AC {target_ac_override} for this roll; saved encounter AC {b.ac} unchanged.")
         self.note(f"{a.name} -> {b.name}: {result.description}.")
         if apply_damage and result.hit and result.damage:
             self.change_hp(target_id, result.damage)

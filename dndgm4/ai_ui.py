@@ -74,6 +74,8 @@ class AIWritingDialog(QDialog):
     def __init__(self, kind: str = "dm", context: str = "", parent=None):
         super().__init__(parent)
         self.kind = kind
+        self.source_audience = "user"
+        self.request_audience = "user"
         # Closing the Scribe must not signal QApplication to quit, even
         # when opened as a standalone non-modal child of the main window.
         self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
@@ -220,6 +222,7 @@ class AIWritingDialog(QDialog):
             request_line.addWidget(QLabel("Your request"))
             self.dm_request = QLineEdit()
             self.dm_request.setMaxLength(2000)
+            self.dm_request.textChanged.connect(self._mark_request_audience)
             self.dm_request.setAccessibleName("Request for the Dungeon Master assistant")
             self.dm_request.setPlaceholderText("What would help you plan or run this session?")
             request_line.addWidget(self.dm_request, 1)
@@ -227,6 +230,19 @@ class AIWritingDialog(QDialog):
             self.dm_task.currentIndexChanged.connect(self._update_task)
 
         root.addWidget(QLabel("Prompt / Campaign Details"))
+        if kind == "dm":
+            self.context_source = QLabel("Context: text entered by you; review it before player narration.")
+            self.context_source.setWordWrap(True)
+            self.context_source.setObjectName("muted")
+            root.addWidget(self.context_source)
+            sources = QHBoxLayout()
+            self.recall_button = QPushButton("Recall Campaign Sources…")
+            self.recall_button.clicked.connect(self.recall_campaign_sources)
+            sources.addWidget(self.recall_button)
+            clear = QPushButton("Clear Sources / Write a New Prompt")
+            clear.clicked.connect(self.clear_source_context)
+            sources.addWidget(clear)
+            root.addLayout(sources)
         self.context = QPlainTextEdit()
         self.context.setPlainText(context)
         self.context.setPlaceholderText(
@@ -239,6 +255,10 @@ class AIWritingDialog(QDialog):
         root.addWidget(self.context, 2)
 
         root.addWidget(QLabel("Generated Draft (editable)"))
+        if kind == "dm":
+            self.draft_audience = QLabel("Draft audience is unverified; review before sharing.")
+            self.draft_audience.setWordWrap(True)
+            root.addWidget(self.draft_audience)
         self.result = QPlainTextEdit()
         self.result.setMinimumHeight(150)
         self.result.setAccessibleName("AI-generated editable draft")
@@ -332,6 +352,44 @@ class AIWritingDialog(QDialog):
         if path:
             self.runner.setText(path)
 
+    def load_context(self, context, *, audience="dm"):
+        if audience not in ("dm", "player", "user"):
+            raise ValueError("Choose a valid context audience.")
+        if self.worker is not None:
+            raise ValueError("Wait for the current Scribe request before replacing its sources.")
+        if self.kind == "dm" and audience == "player" and self.source_audience != "player":
+            self.dm_request.clear()
+        self.context.setPlainText(context)
+        self.source_audience = audience
+        if self.kind == "dm":
+            labels = {"dm": "Private saved DM sources: use planning, advice or recap. Player narration requires public sources.",
+                      "player": "Player-facing sources: only the reviewed public-field selection was loaded.",
+                      "user": "Context: text entered by you; review it before player narration."}
+            self.context_source.setText(labels[audience])
+            if self.result.toPlainText().strip():
+                self.status.setText("Sources loaded. The existing draft has not been regenerated for these sources.")
+
+    def clear_source_context(self):
+        try:
+            self.load_context("", audience="user")
+            self.dm_request.clear()
+        except ValueError as exc:
+            self.status.setText(str(exc))
+
+    def _mark_request_audience(self, *args):
+        self.request_audience = "player" if self.dm_task.currentData() == "dm" else "dm"
+
+    def recall_campaign_sources(self):
+        host = self.parent()
+        while host is not None:
+            callback = getattr(host, "open_campaign_recall", None)
+            if callable(callback):
+                callback(query=self.dm_request.text().strip(),
+                         audience="player" if self.dm_task.currentData() == "dm" else "dm", writer=self)
+                return
+            host = host.parent()
+        self.status.setText("Open Campaign Recall from the main campaign window after selecting a saved session.")
+
     def generate(self):
         # Keep the loaded saved-record context intact; a task-specific request
         # is appended only for this generation, never written into the library.
@@ -339,6 +397,12 @@ class AIWritingDialog(QDialog):
         task = self.kind
         if self.kind == "dm":
             task = self.dm_task.currentData()
+            if task == "dm" and self.source_audience == "dm":
+                self.status.setText("Private saved sources cannot be used for player narration. Recall player-facing sources, or clear the context and write a new public prompt.")
+                return
+            if task == "dm" and self.dm_request.text().strip() and self.request_audience == "dm":
+                self.status.setText("This request was written for private DM work. Clear it or rewrite it for player narration before generating.")
+                return
             request = self.dm_request.text().strip()
             if request:
                 context = context.rstrip() + ("\n\n" if context.strip() else "")
@@ -357,6 +421,7 @@ class AIWritingDialog(QDialog):
                         self.model.text().strip(), backend,
                         self.runner.text().strip() if backend == "gguf" else "",
                         self.gpu_layers.value() if backend == "gguf" else 0)
+        self._generation_audience = "player" if task == "dm" else "dm"
         self.worker = job
         job.signals.done.connect(self.generation_completed)
         job.signals.failed.connect(self.failed)
@@ -403,6 +468,9 @@ class AIWritingDialog(QDialog):
         receives an integer here, crashing the Windows Qt event loop.
         """
         self.result.setPlainText(output)
+        if self.kind == "dm":
+            self.draft_audience.setText("Player narration draft: review before sharing." if getattr(self, "_generation_audience", "dm") == "player"
+                                       else "Private DM draft: use for planning, advice or a reviewed recap.")
         self.status.setText("Generated locally. Review and edit before using.")
         self.generate_button.setEnabled(True)
         self.worker = None

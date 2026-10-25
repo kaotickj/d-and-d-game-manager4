@@ -10,7 +10,8 @@ from copy import deepcopy
 from dataclasses import replace
 import json
 
-from .build_rules import FIGHTER_BONUS, PREREQUISITES, SIMPLE_FEATS, automatic_class_feats
+from .build_rules import (FIGHTER_BONUS, PREREQUISITES, SIMPLE_FEATS,
+                          automatic_class_feats, prerequisite_failures)
 from .character_sheet import SKILLS, TEMPLATES, NPC_CLASS_TEMPLATES
 from .creation import ABILITIES, CORE_CLASSES
 from .dice import ability_modifier
@@ -204,10 +205,8 @@ def _feat_slots(name: str, level: int) -> dict:
 
 
 def _qualifies(feat: str, owned: set[str], scores: dict, bab: int) -> bool:
-    rule = PREREQUISITES.get(feat)
-    if rule:
-        attr, minimum, needed, min_bab = rule
-        return (not attr or scores[attr] >= minimum) and (not needed or needed in owned) and bab >= min_bab
+    if feat in PREREQUISITES:
+        return not prerequisite_failures(feat, owned, scores, bab)
     return feat in _SAFE_FEATS or feat in _WIZARD_FEATS
 
 
